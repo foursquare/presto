@@ -56,6 +56,7 @@ import static com.google.common.base.Predicates.not;
 import static com.google.common.collect.Iterables.filter;
 import static com.google.common.collect.Lists.transform;
 import static org.apache.hadoop.hive.metastore.MetaStoreUtils.getDeserializer;
+import static org.apache.hadoop.hive.serde.serdeConstants.SERIALIZATION_CLASS;
 import static org.apache.hadoop.hive.serde.serdeConstants.SERIALIZATION_NULL_FORMAT;
 
 public class HiveRecordSet
@@ -174,7 +175,7 @@ public class HiveRecordSet
         final InputFormat<?, ?> inputFormat = getInputFormat(configuration, split.getSchema(), true);
         final JobConf jobConf = new JobConf(configuration);
         final FileSplit fileSplit = createFileSplit(wrappedPath, split.getStart(), split.getLength());
-
+        jobConf.set(SERIALIZATION_CLASS, split.getSchema().getProperty(SERIALIZATION_CLASS));
         try {
             return retry().stopOnIllegalExceptions().run("createRecordReader", new Callable<RecordReader<?, ?>>()
             {
