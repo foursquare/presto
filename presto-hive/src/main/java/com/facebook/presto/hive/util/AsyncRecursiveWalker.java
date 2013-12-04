@@ -15,6 +15,7 @@ package com.facebook.presto.hive.util;
 
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
+import org.apache.hadoop.fs.BlockLocation;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 
@@ -54,16 +55,23 @@ public class AsyncRecursiveWalker
             {
                 try {
                     for (DirectoryEntry entry : listDirectory(fileSystem, path)) {
-                        if (entry.isDirectory()) {
-                            recursiveWalk(entry.getFileStatus().getPath(), callback, taskCount, settableFuture);
-                        }
-                        else {
-                            callback.process(entry.getFileStatus(), entry.getBlockLocations());
+                        // ignore files starting with underscore
+                        if (!entry.getFileStatus().getPath().getName().startsWith("_")){
+                            if (entry.isDirectory()) {
+                                recursiveWalk(entry.getFileStatus().getPath(), callback, taskCount, settableFuture);
+                            }
+                            else {
+                                BlockLocation[] blockLocations = entry.getBlockLocations();
+                                // ignore empty files
+                                if (blockLocations.length > 0) {
+                                    callback.process(entry.getFileStatus(), blockLocations);
+                                }
+                            }
                         }
                     }
                 }
                 catch (FileNotFoundException e) {
-                    settableFuture.setException(new FileNotFoundException("Partition location does not exist: " + path));
+                    settableFuture.setException(new RuntimeException("Partition location does not exist: " + path, e));
                 }
                 catch (IOException | RuntimeException e) {
                     settableFuture.setException(e);

@@ -43,13 +43,15 @@ final class DirectoryLister
 
     private static Lister createLister()
     {
-        try {
-            // this fails on old versions of Hadoop that don't have LocatedFileStatus
-            return new FastLister();
-        }
-        catch (Throwable t) {
-            return new SlowLister();
-        }
+        // always use a slow lister
+        return new SlowLister();
+//        try {
+//            // this fails on old versions of Hadoop that don't have LocatedFileStatus
+//            return new FastLister();
+//        }
+//        catch (Throwable t) {
+//            return new SlowLister();
+//        }
     }
 
     private interface Lister
