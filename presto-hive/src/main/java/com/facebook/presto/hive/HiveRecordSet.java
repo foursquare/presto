@@ -175,7 +175,10 @@ public class HiveRecordSet
         final InputFormat<?, ?> inputFormat = getInputFormat(configuration, split.getSchema(), true);
         final JobConf jobConf = new JobConf(configuration);
         final FileSplit fileSplit = createFileSplit(wrappedPath, split.getStart(), split.getLength());
-        jobConf.set(SERIALIZATION_CLASS, split.getSchema().getProperty(SERIALIZATION_CLASS));
+        String serializationClass = split.getSchema().getProperty(SERIALIZATION_CLASS);
+        if (serializationClass != null) {
+            jobConf.set(SERIALIZATION_CLASS, serializationClass);
+        }
         try {
             return retry().stopOnIllegalExceptions().run("createRecordReader", new Callable<RecordReader<?, ?>>()
             {
