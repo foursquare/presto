@@ -146,6 +146,11 @@ public class HiveRecordSet
         final JobConf jobConf = new JobConf(configuration);
         final FileSplit fileSplit = createFileSplit(wrappedPath, split.getStart(), split.getLength());
 
+        // propagate split configuration to getRecordReader
+        for (String schemaKey : split.getSchema().stringPropertyNames()) {
+            jobConf.set(schemaKey, split.getSchema().getProperty(schemaKey));
+        }
+
         try {
             return retry().stopOnIllegalExceptions().run("createRecordReader", new Callable<RecordReader<?, ?>>()
             {
