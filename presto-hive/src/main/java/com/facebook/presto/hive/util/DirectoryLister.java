@@ -44,13 +44,15 @@ final class DirectoryLister
 
     private static Lister createLister()
     {
-        try {
-            // this fails on old versions of Hadoop that don't have LocatedFileStatus
-            return new FastLister();
-        }
-        catch (Throwable t) {
-            return new SlowLister();
-        }
+        // always use a slow lister
+        return new SlowLister();
+//        try {
+//            // this fails on old versions of Hadoop that don't have LocatedFileStatus
+//            return new FastLister();
+//        }
+//        catch (Throwable t) {
+//            return new SlowLister();
+//        }
     }
 
     private interface Lister
@@ -70,15 +72,21 @@ final class DirectoryLister
             RemoteIterator<LocatedFileStatus> iter = fileSystem.listLocatedStatus(path);
             while (iter.hasNext()) {
                 LocatedFileStatus status = iter.next();
-                if (isDirectory(status)) {
-                    list.add(entryForDirectory(status));
-                }
-                else {
-                    list.add(entryForFile(status, status.getBlockLocations()));
+                if (!isUnderscoreName(status)){
+                    if (isDirectory(status)) {
+                        list.add(entryForDirectory(status));
+                    }
+                    else {
+                        list.add(entryForFile(status, status.getBlockLocations()));
+                    }
                 }
             }
             return list.build();
         }
+    }
+
+    public static boolean isUnderscoreName(FileStatus status) {
+        return status.getPath().getName().startsWith("_");
     }
 
     private static class SlowLister
@@ -95,12 +103,14 @@ final class DirectoryLister
 
             ImmutableList.Builder<DirectoryEntry> list = ImmutableList.builder();
             for (FileStatus status : listing) {
-                if (isDirectory(status)) {
-                    list.add(entryForDirectory(status));
-                }
-                else {
-                    // old versions of Hadoop require fetching block locations for every file individually
-                    list.add(entryForFile(status, fileSystem.getFileBlockLocations(status, 0, Long.MAX_VALUE)));
+                if (!isUnderscoreName(status)){
+                    if (isDirectory(status)) {
+                        list.add(entryForDirectory(status));
+                    }
+                    else {
+                        // old versions of Hadoop require fetching block locations for every file individually
+                        list.add(entryForFile(status, fileSystem.getFileBlockLocations(status, 0, Long.MAX_VALUE)));
+                    }
                 }
             }
             return list.build();
