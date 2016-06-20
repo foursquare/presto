@@ -26,6 +26,7 @@ import com.facebook.presto.spi.type.VarcharType;
 import com.google.common.base.Joiner;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
+import io.airlift.log.Logger;
 import io.airlift.slice.Slice;
 import io.airlift.slice.SliceUtf8;
 import io.airlift.slice.Slices;
@@ -36,6 +37,8 @@ import org.apache.hadoop.hive.common.JavaUtils;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.MetaException;
 import org.apache.hadoop.hive.metastore.api.Partition;
+import org.apache.hadoop.hive.metastore.api.SerDeInfo;
+import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.ql.io.SymlinkTextInputFormat;
 import org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat;
@@ -60,10 +63,13 @@ import org.joda.time.format.DateTimeParser;
 import org.joda.time.format.DateTimePrinter;
 import org.joda.time.format.ISODateTimeFormat;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
@@ -111,6 +117,8 @@ import static org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector.Cate
 
 public final class HiveUtil
 {
+    private static final Logger log = Logger.get(HiveUtil.class);
+
     public static final String PRESTO_VIEW_FLAG = "presto_view";
 
     private static final String VIEW_PREFIX = "/* Presto View: ";
@@ -124,6 +132,12 @@ public final class HiveUtil
     private static final int DECIMAL_SCALE_GROUP = 2;
 
     private static final String BIG_DECIMAL_POSTFIX = "BD";
+
+    private static final String METASTORE_SERDES =
+    "org.apache.hadoop.hive.ql.io.orc.OrcSerde,org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe," +
+    "org.apache.hadoop.hive.serde2.columnar.ColumnarSerDe,org.apache.hadoop.hive.serde2.dynamic_type.DynamicSerDe," +
+    "org.apache.hadoop.hive.serde2.MetadataTypedColumnsetSerDe,org.apache.hadoop.hive.serde2.columnar.LazyBinaryColumnarSerDe," +
+    "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe,org.apache.hadoop.hive.serde2.lazybinary.LazyBinarySerDe";
 
     static {
         DateTimeParser[] timestampWithoutTimeZoneParser = {
@@ -619,7 +633,69 @@ public final class HiveUtil
         // add the partition keys last (like Hive does)
         columns.addAll(getPartitionKeyColumnHandles(connectorId, table));
 
+        log.info("hiveColumnHandles");
+        StringWriter sw = new StringWriter();
+        new Throwable().printStackTrace(new PrintWriter(sw));
+        String stackTrace = sw.toString();
+        log.info(stackTrace);
+
         return columns.build();
+    }
+
+public static List<FieldSchema> getFieldsFromDeserializer(Table table)
+    {
+        ArrayList<FieldSchema> strFields = new ArrayList<FieldSchema>();
+
+        List<? extends StructField> fields = getTableStructFields(table);
+        int size = fields.size();
+        log.info("fields size: %s", size);
+
+        for (int i = 0; i < fields.size(); i++) {
+            StructField structField = fields.get(i);
+            String fieldName = structField.getFieldName();
+            String fieldTypeName = structField.getFieldObjectInspector().getTypeName();
+            String fieldComment = ""; // determineFieldComment(structField.getFieldComment());
+
+            strFields.add(new FieldSchema(fieldName, fieldTypeName, fieldComment));
+        }
+        return strFields;
+    }
+
+    public static List<FieldSchema> getTableFields(Table table)
+    {
+        ArrayList<FieldSchema> strFields = new ArrayList<FieldSchema>();
+
+        if (hasMetastoreBasedSchema(table)) {
+            log.info("getCols");
+            return table.getSd().getCols();
+        }
+        else {
+            log.info("getFieldsFromDeserializer");
+            return getFieldsFromDeserializer(table);
+        }
+    }
+
+    public static boolean hasMetastoreBasedSchema(Table table)
+    {
+        StorageDescriptor descriptor = table.getSd();
+        if (descriptor == null) {
+            log.info("no descriptor");
+            // throw new PrestoException(HIVE_INVALID_METADATA, "Table is missing storage descriptor");
+        }
+        SerDeInfo serdeInfo = descriptor.getSerdeInfo();
+        if (serdeInfo == null) {
+            log.info("no serdeInfo");
+            // throw new PrestoException(HIVE_INVALID_METADATA, "Table storage descriptor is missing SerDe info");
+        }
+        String serializationLib = serdeInfo.getSerializationLib();
+        log.info("serdeLib: %s", serializationLib);
+
+        return hasMetastoreBasedSchema(serializationLib);
+    }
+
+    public static boolean hasMetastoreBasedSchema(String serdeLib)
+    {
+        return (serdeLib.length() < 1) || (METASTORE_SERDES.contains(serdeLib));
     }
 
     public static List<HiveColumnHandle> getNonPartitionKeyColumnHandles(String connectorId, Table table)
@@ -627,11 +703,16 @@ public final class HiveUtil
         ImmutableList.Builder<HiveColumnHandle> columns = ImmutableList.builder();
 
         int hiveColumnIndex = 0;
-        for (FieldSchema field : table.getSd().getCols()) {
+        for (FieldSchema field : getTableFields(table)) {
+            log.info("going over column field: %s", field.getName());
+            log.info("going over column type: %s", field.getType());
             // ignore unsupported types rather than failing
             HiveType hiveType = HiveType.valueOf(field.getType());
             if (hiveType.isSupportedType()) {
-                columns.add(new HiveColumnHandle(connectorId, field.getName(), hiveType, hiveType.getTypeSignature(), hiveColumnIndex, false));
+                Boolean isSupported = hiveType.isSupportedType();
+                if (isSupported) {
+                    columns.add(new HiveColumnHandle(connectorId, field.getName(), hiveType, hiveType.getTypeSignature(), hiveColumnIndex, false));
+                }
             }
             hiveColumnIndex++;
         }
