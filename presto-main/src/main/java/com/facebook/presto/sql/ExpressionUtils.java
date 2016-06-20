@@ -14,10 +14,13 @@
 package com.facebook.presto.sql;
 
 import com.facebook.presto.sql.planner.DependencyExtractor;
+import com.facebook.presto.sql.planner.DeterminismEvaluator;
 import com.facebook.presto.sql.planner.Symbol;
+import com.facebook.presto.sql.tree.ComparisonExpression;
 import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.IsNullPredicate;
 import com.facebook.presto.sql.tree.LogicalBinaryExpression;
+import com.facebook.presto.sql.tree.NotExpression;
 import com.facebook.presto.sql.tree.QualifiedNameReference;
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
@@ -27,38 +30,48 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 
+import java.util.ArrayDeque;
 import java.util.Arrays;
-import java.util.Iterator;
 import java.util.List;
+import java.util.Queue;
 
-import static com.facebook.presto.sql.planner.DeterminismEvaluator.deterministic;
 import static com.facebook.presto.sql.tree.BooleanLiteral.FALSE_LITERAL;
 import static com.facebook.presto.sql.tree.BooleanLiteral.TRUE_LITERAL;
+import static com.facebook.presto.sql.tree.ComparisonExpression.Type.IS_DISTINCT_FROM;
+import static com.facebook.presto.util.ImmutableCollectors.toImmutableList;
 import static com.google.common.base.Predicates.not;
+import static com.google.common.collect.Iterables.contains;
 import static com.google.common.collect.Iterables.filter;
+import static com.google.common.collect.Iterables.transform;
+import static com.google.common.collect.Lists.newArrayList;
+import static java.util.Objects.requireNonNull;
 
-public class ExpressionUtils
+public final class ExpressionUtils
 {
+    private ExpressionUtils() {}
+
     public static List<Expression> extractConjuncts(Expression expression)
     {
-        if (expression instanceof LogicalBinaryExpression && ((LogicalBinaryExpression) expression).getType() == LogicalBinaryExpression.Type.AND) {
-            LogicalBinaryExpression and = (LogicalBinaryExpression) expression;
-            return ImmutableList.<Expression>builder()
-                    .addAll(extractConjuncts(and.getLeft()))
-                    .addAll(extractConjuncts(and.getRight()))
-                    .build();
-        }
-
-        return ImmutableList.of(expression);
+        return extractPredicates(LogicalBinaryExpression.Type.AND, expression);
     }
 
     public static List<Expression> extractDisjuncts(Expression expression)
     {
-        if (expression instanceof LogicalBinaryExpression && ((LogicalBinaryExpression) expression).getType() == LogicalBinaryExpression.Type.OR) {
-            LogicalBinaryExpression or = (LogicalBinaryExpression) expression;
+        return extractPredicates(LogicalBinaryExpression.Type.OR, expression);
+    }
+
+    public static List<Expression> extractPredicates(LogicalBinaryExpression expression)
+    {
+        return extractPredicates(expression.getType(), expression);
+    }
+
+    public static List<Expression> extractPredicates(LogicalBinaryExpression.Type type, Expression expression)
+    {
+        if (expression instanceof LogicalBinaryExpression && ((LogicalBinaryExpression) expression).getType() == type) {
+            LogicalBinaryExpression logicalBinaryExpression = (LogicalBinaryExpression) expression;
             return ImmutableList.<Expression>builder()
-                    .addAll(extractDisjuncts(or.getLeft()))
-                    .addAll(extractDisjuncts(or.getRight()))
+                    .addAll(extractPredicates(type, logicalBinaryExpression.getLeft()))
+                    .addAll(extractPredicates(type, logicalBinaryExpression.getRight()))
                     .build();
         }
 
@@ -87,18 +100,30 @@ public class ExpressionUtils
 
     public static Expression binaryExpression(LogicalBinaryExpression.Type type, Iterable<Expression> expressions)
     {
-        Preconditions.checkNotNull(type, "type is null");
-        Preconditions.checkNotNull(expressions, "expressions is null");
+        requireNonNull(type, "type is null");
+        requireNonNull(expressions, "expressions is null");
         Preconditions.checkArgument(!Iterables.isEmpty(expressions), "expressions is empty");
 
-        Iterator<Expression> iterator = expressions.iterator();
+        // build balanced tree for efficient recursive processing
+        Queue<Expression> queue = new ArrayDeque<>(newArrayList(expressions));
+        while (queue.size() > 1) {
+            queue.add(new LogicalBinaryExpression(type, queue.remove(), queue.remove()));
+        }
+        return queue.remove();
+    }
 
-        Expression result = iterator.next();
-        while (iterator.hasNext()) {
-            result = new LogicalBinaryExpression(type, result, iterator.next());
+    public static Expression combinePredicates(LogicalBinaryExpression.Type type, Expression... expressions)
+    {
+        return combinePredicates(type, Arrays.asList(expressions));
+    }
+
+    public static Expression combinePredicates(LogicalBinaryExpression.Type type, Iterable<Expression> expressions)
+    {
+        if (type == LogicalBinaryExpression.Type.AND) {
+            return combineConjuncts(expressions);
         }
 
-        return result;
+        return combineDisjuncts(expressions);
     }
 
     public static Expression combineConjuncts(Expression... expressions)
@@ -113,21 +138,19 @@ public class ExpressionUtils
 
     public static Expression combineConjunctsWithDefault(Iterable<Expression> expressions, Expression emptyDefault)
     {
-        Preconditions.checkNotNull(expressions, "expressions is null");
+        requireNonNull(expressions, "expressions is null");
 
         // Flatten all the expressions into their component conjuncts
-        expressions = Iterables.concat(Iterables.transform(expressions, new Function<Expression, Iterable<Expression>>()
-        {
-            @Override
-            public Iterable<Expression> apply(Expression expression)
-            {
-                return extractConjuncts(expression);
-            }
-        }));
+        expressions = Iterables.concat(transform(expressions, ExpressionUtils::extractConjuncts));
 
         // Strip out all true literal conjuncts
-        expressions = Iterables.filter(expressions, not(Predicates.<Expression>equalTo(TRUE_LITERAL)));
+        expressions = filter(expressions, not(Predicates.<Expression>equalTo(TRUE_LITERAL)));
         expressions = removeDuplicates(expressions);
+
+        if (contains(expressions, FALSE_LITERAL)) {
+            return FALSE_LITERAL;
+        }
+
         return Iterables.isEmpty(expressions) ? emptyDefault : and(expressions);
     }
 
@@ -143,70 +166,82 @@ public class ExpressionUtils
 
     public static Expression combineDisjunctsWithDefault(Iterable<Expression> expressions, Expression emptyDefault)
     {
-        Preconditions.checkNotNull(expressions, "expressions is null");
+        requireNonNull(expressions, "expressions is null");
 
         // Flatten all the expressions into their component disjuncts
-        expressions = Iterables.concat(Iterables.transform(expressions, new Function<Expression, Iterable<Expression>>()
-        {
-            @Override
-            public Iterable<Expression> apply(Expression expression)
-            {
-                return extractDisjuncts(expression);
-            }
-        }));
+        expressions = Iterables.concat(transform(expressions, ExpressionUtils::extractDisjuncts));
 
         // Strip out all false literal disjuncts
-        expressions = Iterables.filter(expressions, not(Predicates.<Expression>equalTo(FALSE_LITERAL)));
+        expressions = filter(expressions, not(Predicates.<Expression>equalTo(FALSE_LITERAL)));
         expressions = removeDuplicates(expressions);
-        return Iterables.isEmpty(expressions) ? emptyDefault : or(expressions);
-    }
 
-    public static Function<Symbol, QualifiedNameReference> symbolToQualifiedNameReference()
-    {
-        return new Function<Symbol, QualifiedNameReference>()
-        {
-            @Override
-            public QualifiedNameReference apply(Symbol symbol)
-            {
-                return new QualifiedNameReference(symbol.toQualifiedName());
-            }
-        };
+        if (contains(expressions, TRUE_LITERAL)) {
+            return TRUE_LITERAL;
+        }
+
+        return Iterables.isEmpty(expressions) ? emptyDefault : or(expressions);
     }
 
     public static Expression stripNonDeterministicConjuncts(Expression expression)
     {
-        return combineConjuncts(filter(extractConjuncts(expression), deterministic()));
+        return combineConjuncts(filter(extractConjuncts(expression), DeterminismEvaluator::isDeterministic));
     }
 
-    public static Function<Expression, Expression> expressionOrNullSymbols(final Predicate<Symbol> nullSymbolScope)
+    public static Expression stripDeterministicConjuncts(Expression expression)
     {
-        return new Function<Expression, Expression>()
-        {
-            @Override
-            public Expression apply(Expression expression)
-            {
+        return combineConjuncts(extractConjuncts(expression)
+                .stream()
+                .filter((conjunct) -> !DeterminismEvaluator.isDeterministic(conjunct))
+                .collect(toImmutableList()));
+    }
+
+    public static Function<Expression, Expression> expressionOrNullSymbols(final Predicate<Symbol>... nullSymbolScopes)
+    {
+        return expression -> {
+            ImmutableList.Builder<Expression> resultDisjunct = ImmutableList.builder();
+            resultDisjunct.add(expression);
+
+            for (Predicate<Symbol> nullSymbolScope : nullSymbolScopes) {
                 Iterable<Symbol> symbols = filter(DependencyExtractor.extractUnique(expression), nullSymbolScope);
                 if (Iterables.isEmpty(symbols)) {
-                    return expression;
+                    continue;
                 }
 
                 ImmutableList.Builder<Expression> nullConjuncts = ImmutableList.builder();
                 for (Symbol symbol : symbols) {
                     nullConjuncts.add(new IsNullPredicate(new QualifiedNameReference(symbol.toQualifiedName())));
                 }
-                return or(expression, and(nullConjuncts.build()));
+
+                resultDisjunct.add(and(nullConjuncts.build()));
             }
+
+            return or(resultDisjunct.build());
         };
     }
 
     private static Iterable<Expression> removeDuplicates(Iterable<Expression> expressions)
     {
         // Capture all non-deterministic predicates
-        Iterable<Expression> nonDeterministicDisjuncts = Iterables.filter(expressions, not(deterministic()));
+        Iterable<Expression> nonDeterministicDisjuncts = filter(expressions, not(DeterminismEvaluator::isDeterministic));
 
         // Capture and de-dupe all deterministic predicates
-        Iterable<Expression> deterministicDisjuncts = ImmutableSet.copyOf(Iterables.filter(expressions, deterministic()));
+        Iterable<Expression> deterministicDisjuncts = ImmutableSet.copyOf(filter(expressions, DeterminismEvaluator::isDeterministic));
 
         return Iterables.concat(nonDeterministicDisjuncts, deterministicDisjuncts);
+    }
+
+    public static Expression normalize(Expression expression)
+    {
+        if (expression instanceof NotExpression) {
+            NotExpression not = (NotExpression) expression;
+            if (not.getValue() instanceof ComparisonExpression && ((ComparisonExpression) not.getValue()).getType() != IS_DISTINCT_FROM) {
+                ComparisonExpression comparison = (ComparisonExpression) not.getValue();
+                return new ComparisonExpression(comparison.getType().negate(), comparison.getLeft(), comparison.getRight());
+            }
+            if (not.getValue() instanceof NotExpression) {
+                return normalize(((NotExpression) not.getValue()).getValue());
+            }
+        }
+        return expression;
     }
 }

@@ -13,8 +13,10 @@
  */
 package com.facebook.presto.sql.tree;
 
-import com.google.common.base.Function;
-import com.google.common.base.Objects;
+import java.util.Objects;
+import java.util.Optional;
+
+import static com.google.common.base.MoreObjects.toStringHelper;
 
 public class SortItem
         extends Node
@@ -35,6 +37,17 @@ public class SortItem
 
     public SortItem(Expression sortKey, Ordering ordering, NullOrdering nullOrdering)
     {
+        this(Optional.empty(), sortKey, ordering, nullOrdering);
+    }
+
+    public SortItem(NodeLocation location, Expression sortKey, Ordering ordering, NullOrdering nullOrdering)
+    {
+        this(Optional.of(location), sortKey, ordering, nullOrdering);
+    }
+
+    private SortItem(Optional<NodeLocation> location, Expression sortKey, Ordering ordering, NullOrdering nullOrdering)
+    {
+        super(location);
         this.ordering = ordering;
         this.sortKey = sortKey;
         this.nullOrdering = nullOrdering;
@@ -64,7 +77,7 @@ public class SortItem
     @Override
     public String toString()
     {
-        return Objects.toStringHelper(this)
+        return toStringHelper(this)
                 .add("sortKey", sortKey)
                 .add("ordering", ordering)
                 .add("nullOrdering", nullOrdering)
@@ -82,38 +95,14 @@ public class SortItem
         }
 
         SortItem sortItem = (SortItem) o;
-
-        if (nullOrdering != sortItem.nullOrdering) {
-            return false;
-        }
-        if (ordering != sortItem.ordering) {
-            return false;
-        }
-        if (!sortKey.equals(sortItem.sortKey)) {
-            return false;
-        }
-
-        return true;
+        return Objects.equals(sortKey, sortItem.sortKey) &&
+                (ordering == sortItem.ordering) &&
+                (nullOrdering == sortItem.nullOrdering);
     }
 
     @Override
     public int hashCode()
     {
-        int result = sortKey.hashCode();
-        result = 31 * result + (ordering != null ? ordering.hashCode() : 0);
-        result = 31 * result + (nullOrdering != null ? nullOrdering.hashCode() : 0);
-        return result;
-    }
-
-    public static Function<SortItem, Expression> sortKeyGetter()
-    {
-        return new Function<SortItem, Expression>()
-        {
-            @Override
-            public Expression apply(SortItem input)
-            {
-                return input.getSortKey();
-            }
-        };
+        return Objects.hash(sortKey, ordering, nullOrdering);
     }
 }

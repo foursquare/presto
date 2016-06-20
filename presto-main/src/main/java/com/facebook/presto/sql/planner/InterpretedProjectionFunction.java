@@ -13,47 +13,70 @@
  */
 package com.facebook.presto.sql.planner;
 
-import com.facebook.presto.block.BlockBuilder;
+import com.facebook.presto.Session;
 import com.facebook.presto.metadata.Metadata;
 import com.facebook.presto.operator.ProjectionFunction;
 import com.facebook.presto.spi.RecordCursor;
-import com.facebook.presto.sql.analyzer.Session;
-import com.facebook.presto.sql.analyzer.Type;
+import com.facebook.presto.spi.block.Block;
+import com.facebook.presto.spi.block.BlockBuilder;
+import com.facebook.presto.spi.type.Type;
+import com.facebook.presto.sql.parser.SqlParser;
 import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.ExpressionTreeRewriter;
-import com.facebook.presto.sql.tree.Input;
-import com.facebook.presto.tuple.TupleInfo;
-import com.facebook.presto.tuple.TupleReadable;
+import com.google.common.collect.ImmutableMap;
 import io.airlift.slice.Slice;
 
+import java.util.IdentityHashMap;
 import java.util.Map;
+import java.util.Set;
+
+import static com.facebook.presto.sql.analyzer.ExpressionAnalyzer.getExpressionTypesFromInput;
+import static java.util.Objects.requireNonNull;
 
 public class InterpretedProjectionFunction
         implements ProjectionFunction
 {
     private final Type type;
     private final ExpressionInterpreter evaluator;
+    private final Set<Integer> inputChannels;
+    private final boolean deterministic;
 
-    public InterpretedProjectionFunction(Type type, Expression expression, Map<Symbol, Input> symbolToInputMapping, Metadata metadata, Session session)
+    public InterpretedProjectionFunction(
+            Expression expression,
+            Map<Symbol, Type> symbolTypes,
+            Map<Symbol, Integer> symbolToInputMappings,
+            Metadata metadata,
+            SqlParser sqlParser,
+            Session session)
     {
-        this.type = type;
-
         // pre-compute symbol -> input mappings and replace the corresponding nodes in the tree
-        Expression rewritten = ExpressionTreeRewriter.rewriteWith(new SymbolToInputRewriter(symbolToInputMapping), expression);
+        Expression rewritten = ExpressionTreeRewriter.rewriteWith(new SymbolToInputRewriter(symbolToInputMappings), expression);
 
-        evaluator = ExpressionInterpreter.expressionInterpreter(rewritten, metadata, session);
+        // analyze expression so we can know the type of every expression in the tree
+        ImmutableMap.Builder<Integer, Type> inputTypes = ImmutableMap.builder();
+        for (Map.Entry<Symbol, Integer> entry : symbolToInputMappings.entrySet()) {
+            inputTypes.put(entry.getValue(), symbolTypes.get(entry.getKey()));
+        }
+        IdentityHashMap<Expression, Type> expressionTypes = getExpressionTypesFromInput(session, metadata, sqlParser, inputTypes.build(), rewritten);
+        this.type = requireNonNull(expressionTypes.get(rewritten), "type is null");
+
+        evaluator = ExpressionInterpreter.expressionInterpreter(rewritten, metadata, session, expressionTypes);
+        InputReferenceExtractor inputReferenceExtractor = new InputReferenceExtractor();
+        inputReferenceExtractor.process(rewritten, null);
+        this.inputChannels = inputReferenceExtractor.getInputChannels();
+        this.deterministic = DeterminismEvaluator.isDeterministic(expression);
     }
 
     @Override
-    public TupleInfo getTupleInfo()
+    public Type getType()
     {
-        return new TupleInfo(type.getRawType());
+        return type;
     }
 
     @Override
-    public void project(TupleReadable[] cursors, BlockBuilder output)
+    public void project(int position, Block[] blocks, BlockBuilder output)
     {
-        Object value = evaluator.evaluate(cursors);
+        Object value = evaluator.evaluate(position, blocks);
         append(output, value);
     }
 
@@ -64,28 +87,41 @@ public class InterpretedProjectionFunction
         append(output, value);
     }
 
+    @Override
+    public Set<Integer> getInputChannels()
+    {
+        return inputChannels;
+    }
+
+    @Override
+    public boolean isDeterministic()
+    {
+        return deterministic;
+    }
+
     private void append(BlockBuilder output, Object value)
     {
         if (value == null) {
             output.appendNull();
+            return;
+        }
+
+        Class<?> javaType = type.getJavaType();
+        if (javaType == boolean.class) {
+            type.writeBoolean(output, (Boolean) value);
+        }
+        else if (javaType == long.class) {
+            type.writeLong(output, (Long) value);
+        }
+        else if (javaType == double.class) {
+            type.writeDouble(output, (Double) value);
+        }
+        else if (javaType == Slice.class) {
+            Slice slice = (Slice) value;
+            type.writeSlice(output, slice, 0, slice.length());
         }
         else {
-            switch (type) {
-                case BOOLEAN:
-                    output.append((Boolean) value);
-                    break;
-                case BIGINT:
-                    output.append((Long) value);
-                    break;
-                case DOUBLE:
-                    output.append((Double) value);
-                    break;
-                case VARCHAR:
-                    output.append((Slice) value);
-                    break;
-                default:
-                    throw new UnsupportedOperationException("not yet implemented: " + type);
-            }
+            type.writeObject(output, value);
         }
     }
 }

@@ -13,89 +13,159 @@
  */
 package com.facebook.presto.metadata;
 
+import com.facebook.presto.connector.informationSchema.InformationSchemaHandleResolver;
+import com.facebook.presto.connector.system.SystemHandleResolver;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorHandleResolver;
-import com.facebook.presto.spi.Split;
-import com.facebook.presto.spi.TableHandle;
+import com.facebook.presto.spi.ConnectorIndexHandle;
+import com.facebook.presto.spi.ConnectorInsertTableHandle;
+import com.facebook.presto.spi.ConnectorOutputTableHandle;
+import com.facebook.presto.spi.ConnectorSplit;
+import com.facebook.presto.spi.ConnectorTableHandle;
+import com.facebook.presto.spi.ConnectorTableLayoutHandle;
+import com.facebook.presto.spi.connector.ConnectorPartitioningHandle;
+import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 
 import javax.inject.Inject;
 
-import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.function.Function;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
+import static java.util.Objects.requireNonNull;
 
 public class HandleResolver
 {
-    private final ConcurrentMap<String, ConnectorHandleResolver> handleIdResolvers = new ConcurrentHashMap<>();
-
-    public HandleResolver()
-    {
-    }
+    private final ConcurrentMap<String, ConnectorHandleResolver> handleResolvers = new ConcurrentHashMap<>();
 
     @Inject
-    public HandleResolver(Map<String, ConnectorHandleResolver> handleIdResolvers)
+    public HandleResolver()
     {
-        this.handleIdResolvers.putAll(handleIdResolvers);
+        handleResolvers.put("remote", new RemoteHandleResolver());
+        handleResolvers.put("$system", new SystemHandleResolver());
+        handleResolvers.put("$info_schema", new InformationSchemaHandleResolver());
     }
 
-    public void addHandleResolver(String id, ConnectorHandleResolver connectorHandleResolver)
+    public void addConnectorName(String name, ConnectorHandleResolver resolver)
     {
-        ConnectorHandleResolver existingResolver = handleIdResolvers.putIfAbsent(id, connectorHandleResolver);
-        checkState(existingResolver == null, "Id %s is already assigned to resolver %s", id, existingResolver);
+        requireNonNull(name, "name is null");
+        requireNonNull(resolver, "resolver is null");
+        ConnectorHandleResolver existingResolver = handleResolvers.putIfAbsent(name, resolver);
+        checkState(existingResolver == null || existingResolver.equals(resolver),
+                "Connector '%s' is already assigned to resolver: %s", name, existingResolver);
     }
 
-    public String getId(TableHandle tableHandle)
+    public String getId(ConnectorTableHandle tableHandle)
     {
-        for (Entry<String, ConnectorHandleResolver> entry : handleIdResolvers.entrySet()) {
-            if (entry.getValue().canHandle(tableHandle)) {
-                return entry.getKey();
-            }
-        }
-        throw new IllegalArgumentException("No connector for table handle: " + tableHandle);
+        return getId(tableHandle, ConnectorHandleResolver::getTableHandleClass);
+    }
+
+    public String getId(ConnectorTableLayoutHandle handle)
+    {
+        return getId(handle, ConnectorHandleResolver::getTableLayoutHandleClass);
     }
 
     public String getId(ColumnHandle columnHandle)
     {
-        for (Entry<String, ConnectorHandleResolver> entry : handleIdResolvers.entrySet()) {
-            if (entry.getValue().canHandle(columnHandle)) {
-                return entry.getKey();
-            }
-        }
-        throw new IllegalArgumentException("No connector for column handle: " + columnHandle);
+        return getId(columnHandle, ConnectorHandleResolver::getColumnHandleClass);
     }
 
-    public String getId(Split split)
+    public String getId(ConnectorSplit split)
     {
-        for (Entry<String, ConnectorHandleResolver> entry : handleIdResolvers.entrySet()) {
-            if (entry.getValue().canHandle(split)) {
-                return entry.getKey();
-            }
-        }
-        throw new IllegalArgumentException("No connector for split: " + split);
+        return getId(split, ConnectorHandleResolver::getSplitClass);
     }
 
-    public Class<? extends TableHandle> getTableHandleClass(String id)
+    public String getId(ConnectorIndexHandle indexHandle)
     {
-        ConnectorHandleResolver connectorHandleResolver = handleIdResolvers.get(id);
-        checkArgument(connectorHandleResolver != null, "No handle resolver for %s", id);
-        return connectorHandleResolver.getTableHandleClass();
+        return getId(indexHandle, ConnectorHandleResolver::getIndexHandleClass);
+    }
+
+    public String getId(ConnectorOutputTableHandle outputHandle)
+    {
+        return getId(outputHandle, ConnectorHandleResolver::getOutputTableHandleClass);
+    }
+
+    public String getId(ConnectorInsertTableHandle insertHandle)
+    {
+        return getId(insertHandle, ConnectorHandleResolver::getInsertTableHandleClass);
+    }
+
+    public String getId(ConnectorPartitioningHandle partitioningHandle)
+    {
+        return getId(partitioningHandle, ConnectorHandleResolver::getPartitioningHandleClass);
+    }
+
+    public String getId(ConnectorTransactionHandle transactionHandle)
+    {
+        return getId(transactionHandle, ConnectorHandleResolver::getTransactionHandleClass);
+    }
+
+    public Class<? extends ConnectorTableHandle> getTableHandleClass(String id)
+    {
+        return resolverFor(id).getTableHandleClass();
+    }
+
+    public Class<? extends ConnectorTableLayoutHandle> getTableLayoutHandleClass(String id)
+    {
+        return resolverFor(id).getTableLayoutHandleClass();
     }
 
     public Class<? extends ColumnHandle> getColumnHandleClass(String id)
     {
-        ConnectorHandleResolver connectorHandleResolver = handleIdResolvers.get(id);
-        checkArgument(connectorHandleResolver != null, "No handle resolver for %s", id);
-        return connectorHandleResolver.getColumnHandleClass();
+        return resolverFor(id).getColumnHandleClass();
     }
 
-    public Class<? extends Split> getSplitClass(String id)
+    public Class<? extends ConnectorSplit> getSplitClass(String id)
     {
-        ConnectorHandleResolver connectorHandleResolver = handleIdResolvers.get(id);
-        checkArgument(connectorHandleResolver != null, "No handle resolver for %s", id);
-        return connectorHandleResolver.getSplitClass();
+        return resolverFor(id).getSplitClass();
+    }
+
+    public Class<? extends ConnectorIndexHandle> getIndexHandleClass(String id)
+    {
+        return resolverFor(id).getIndexHandleClass();
+    }
+
+    public Class<? extends ConnectorOutputTableHandle> getOutputTableHandleClass(String id)
+    {
+        return resolverFor(id).getOutputTableHandleClass();
+    }
+
+    public Class<? extends ConnectorInsertTableHandle> getInsertTableHandleClass(String id)
+    {
+        return resolverFor(id).getInsertTableHandleClass();
+    }
+
+    public Class<? extends ConnectorPartitioningHandle> getPartitioningHandleClass(String id)
+    {
+        return resolverFor(id).getPartitioningHandleClass();
+    }
+
+    public Class<? extends ConnectorTransactionHandle> getTransactionHandleClass(String id)
+    {
+        return resolverFor(id).getTransactionHandleClass();
+    }
+
+    public ConnectorHandleResolver resolverFor(String id)
+    {
+        ConnectorHandleResolver resolver = handleResolvers.get(id);
+        checkArgument(resolver != null, "No handle resolver for connector: %s", id);
+        return resolver;
+    }
+
+    private <T> String getId(T handle, Function<ConnectorHandleResolver, Class<? extends T>> getter)
+    {
+        for (Entry<String, ConnectorHandleResolver> entry : handleResolvers.entrySet()) {
+            try {
+                if (getter.apply(entry.getValue()).isInstance(handle)) {
+                    return entry.getKey();
+                }
+            }
+            catch (UnsupportedOperationException ignored) {
+            }
+        }
+        throw new IllegalArgumentException("No connector for handle: " + handle);
     }
 }

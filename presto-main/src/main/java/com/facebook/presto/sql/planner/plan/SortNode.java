@@ -13,8 +13,8 @@
  */
 package com.facebook.presto.sql.planner.plan;
 
+import com.facebook.presto.spi.block.SortOrder;
 import com.facebook.presto.sql.planner.Symbol;
-import com.facebook.presto.sql.tree.SortItem;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.base.Preconditions;
@@ -24,23 +24,25 @@ import com.google.common.collect.ImmutableMap;
 import java.util.List;
 import java.util.Map;
 
+import static java.util.Objects.requireNonNull;
+
 public class SortNode
         extends PlanNode
 {
     private final PlanNode source;
     private final List<Symbol> orderBy;
-    private final Map<Symbol, SortItem.Ordering> orderings;
+    private final Map<Symbol, SortOrder> orderings;
 
     @JsonCreator
     public SortNode(@JsonProperty("id") PlanNodeId id,
             @JsonProperty("source") PlanNode source,
             @JsonProperty("orderBy") List<Symbol> orderBy,
-            @JsonProperty("orderings") Map<Symbol, SortItem.Ordering> orderings)
+            @JsonProperty("orderings") Map<Symbol, SortOrder> orderings)
     {
         super(id);
 
-        Preconditions.checkNotNull(source, "source is null");
-        Preconditions.checkNotNull(orderBy, "orderBy is null");
+        requireNonNull(source, "source is null");
+        requireNonNull(orderBy, "orderBy is null");
         Preconditions.checkArgument(!orderBy.isEmpty(), "orderBy is empty");
         Preconditions.checkArgument(orderings.size() == orderBy.size(), "orderBy and orderings sizes don't match");
 
@@ -74,7 +76,7 @@ public class SortNode
     }
 
     @JsonProperty("orderings")
-    public Map<Symbol, SortItem.Ordering> getOrderings()
+    public Map<Symbol, SortOrder> getOrderings()
     {
         return orderings;
     }

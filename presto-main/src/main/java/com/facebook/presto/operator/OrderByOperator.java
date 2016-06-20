@@ -13,73 +13,59 @@
  */
 package com.facebook.presto.operator;
 
-import com.facebook.presto.tuple.TupleInfo;
+import com.facebook.presto.spi.Page;
+import com.facebook.presto.spi.PageBuilder;
+import com.facebook.presto.spi.block.SortOrder;
+import com.facebook.presto.spi.type.Type;
+import com.facebook.presto.sql.planner.plan.PlanNodeId;
 import com.google.common.collect.ImmutableList;
-import com.google.common.util.concurrent.ListenableFuture;
-import it.unimi.dsi.fastutil.booleans.BooleanArrays;
+import com.google.common.primitives.Ints;
 
 import java.util.List;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
+import static java.util.Objects.requireNonNull;
 
 public class OrderByOperator
         implements Operator
 {
-    public static class InMemoryOrderByOperatorFactory
+    public static class OrderByOperatorFactory
             implements OperatorFactory
     {
         private final int operatorId;
-        private final List<TupleInfo> sourceTupleInfos;
-        private final int orderByChannel;
-        private final int[] outputChannels;
+        private final PlanNodeId planNodeId;
+        private final List<Type> sourceTypes;
+        private final List<Integer> outputChannels;
         private final int expectedPositions;
-        private final int[] sortFields;
-        private final boolean[] sortOrder;
-        private final List<TupleInfo> tupleInfos;
+        private final List<Integer> sortChannels;
+        private final List<SortOrder> sortOrder;
+        private final List<Type> types;
         private boolean closed;
 
-        public InMemoryOrderByOperatorFactory(
+        public OrderByOperatorFactory(
                 int operatorId,
-                List<TupleInfo> sourceTupleInfos,
-                int orderByChannel,
-                int[] outputChannels,
-                int expectedPositions)
-        {
-            this(
-                    operatorId,
-                    sourceTupleInfos,
-                    orderByChannel,
-                    outputChannels,
-                    expectedPositions,
-                    defaultSortFields(sourceTupleInfos, orderByChannel),
-                    defaultSortOrder(sourceTupleInfos, orderByChannel));
-        }
-
-        public InMemoryOrderByOperatorFactory(
-                int operatorId,
-                List<TupleInfo> sourceTupleInfos,
-                int orderByChannel,
-                int[] outputChannels,
+                PlanNodeId planNodeId,
+                List<? extends Type> sourceTypes,
+                List<Integer> outputChannels,
                 int expectedPositions,
-                int[] sortFields,
-                boolean[] sortOrder)
+                List<Integer> sortChannels,
+                List<SortOrder> sortOrder)
         {
             this.operatorId = operatorId;
-            this.sourceTupleInfos = ImmutableList.copyOf(checkNotNull(sourceTupleInfos, "sourceTupleInfos is null"));
-            this.orderByChannel = orderByChannel;
-            this.outputChannels = checkNotNull(outputChannels, "outputChannels is null");
+            this.planNodeId = requireNonNull(planNodeId, "planNodeId is null");
+            this.sourceTypes = ImmutableList.copyOf(requireNonNull(sourceTypes, "sourceTypes is null"));
+            this.outputChannels = requireNonNull(outputChannels, "outputChannels is null");
             this.expectedPositions = expectedPositions;
-            this.sortFields = checkNotNull(sortFields, "sortFields is null");
-            this.sortOrder = checkNotNull(sortOrder, "sortOrder is null");
+            this.sortChannels = ImmutableList.copyOf(requireNonNull(sortChannels, "sortChannels is null"));
+            this.sortOrder = ImmutableList.copyOf(requireNonNull(sortOrder, "sortOrder is null"));
 
-            this.tupleInfos = toTupleInfos(sourceTupleInfos, outputChannels);
+            this.types = toTypes(sourceTypes, outputChannels);
         }
 
         @Override
-        public List<TupleInfo> getTupleInfos()
+        public List<Type> getTypes()
         {
-            return tupleInfos;
+            return types;
         }
 
         @Override
@@ -87,14 +73,13 @@ public class OrderByOperator
         {
             checkState(!closed, "Factory is already closed");
 
-            OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, OrderByOperator.class.getSimpleName());
+            OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, OrderByOperator.class.getSimpleName());
             return new OrderByOperator(
                     operatorContext,
-                    sourceTupleInfos,
-                    orderByChannel,
+                    sourceTypes,
                     outputChannels,
                     expectedPositions,
-                    sortFields,
+                    sortChannels,
                     sortOrder);
         }
 
@@ -102,6 +87,12 @@ public class OrderByOperator
         public void close()
         {
             closed = true;
+        }
+
+        @Override
+        public OperatorFactory duplicate()
+        {
+            return new OrderByOperatorFactory(operatorId, planNodeId, sourceTypes, outputChannels, expectedPositions, sortChannels, sortOrder);
         }
     }
 
@@ -113,11 +104,10 @@ public class OrderByOperator
     }
 
     private final OperatorContext operatorContext;
-    private final int orderByChannel;
-    private final int[] sortFields;
-    private final boolean[] sortOrder;
+    private final List<Integer> sortChannels;
+    private final List<SortOrder> sortOrder;
     private final int[] outputChannels;
-    private final List<TupleInfo> tupleInfos;
+    private final List<Type> types;
 
     private final PagesIndex pageIndex;
 
@@ -128,23 +118,21 @@ public class OrderByOperator
 
     public OrderByOperator(
             OperatorContext operatorContext,
-            List<TupleInfo> sourceTupleInfos,
-            int orderByChannel,
-            int[] outputChannels,
+            List<Type> sourceTypes,
+            List<Integer> outputChannels,
             int expectedPositions,
-            int[] sortFields,
-            boolean[] sortOrder)
+            List<Integer> sortChannels,
+            List<SortOrder> sortOrder)
     {
-        this.operatorContext = checkNotNull(operatorContext, "operatorContext is null");
-        this.orderByChannel = orderByChannel;
-        this.outputChannels = checkNotNull(outputChannels, "outputChannels is null");
-        this.tupleInfos = toTupleInfos(sourceTupleInfos, outputChannels);
-        this.sortFields = checkNotNull(sortFields, "sortFields is null");
-        this.sortOrder = checkNotNull(sortOrder, "sortOrder is null");
+        this.operatorContext = requireNonNull(operatorContext, "operatorContext is null");
+        this.outputChannels = Ints.toArray(requireNonNull(outputChannels, "outputChannels is null"));
+        this.types = toTypes(sourceTypes, outputChannels);
+        this.sortChannels = ImmutableList.copyOf(requireNonNull(sortChannels, "sortChannels is null"));
+        this.sortOrder = ImmutableList.copyOf(requireNonNull(sortOrder, "sortOrder is null"));
 
-        this.pageIndex = new PagesIndex(sourceTupleInfos, expectedPositions, operatorContext);
+        this.pageIndex = new PagesIndex(sourceTypes, expectedPositions);
 
-        this.pageBuilder = new PageBuilder(this.tupleInfos);
+        this.pageBuilder = new PageBuilder(this.types);
     }
 
     @Override
@@ -154,9 +142,9 @@ public class OrderByOperator
     }
 
     @Override
-    public List<TupleInfo> getTupleInfos()
+    public List<Type> getTypes()
     {
-        return tupleInfos;
+        return types;
     }
 
     @Override
@@ -166,7 +154,7 @@ public class OrderByOperator
             state = State.HAS_OUTPUT;
 
             // sort the index
-            pageIndex.sort(orderByChannel, sortFields, sortOrder);
+            pageIndex.sort(sortChannels, sortOrder);
         }
     }
 
@@ -174,12 +162,6 @@ public class OrderByOperator
     public boolean isFinished()
     {
         return state == State.FINISHED;
-    }
-
-    @Override
-    public ListenableFuture<?> isBlocked()
-    {
-        return NOT_BLOCKED;
     }
 
     @Override
@@ -192,9 +174,10 @@ public class OrderByOperator
     public void addInput(Page page)
     {
         checkState(state == State.NEEDS_INPUT, "Operator is already finishing");
-        checkNotNull(page, "page is null");
+        requireNonNull(page, "page is null");
 
         pageIndex.addPage(page);
+        operatorContext.setMemoryReservation(pageIndex.getEstimatedSize().toBytes());
     }
 
     @Override
@@ -211,12 +194,7 @@ public class OrderByOperator
 
         // iterate through the positions sequentially until we have one full page
         pageBuilder.reset();
-        while (!pageBuilder.isFull() && currentPosition < pageIndex.getPositionCount()) {
-            for (int i = 0; i < outputChannels.length; i++) {
-                pageIndex.appendTupleTo(outputChannels[i], currentPosition, pageBuilder.getBlockBuilder(i));
-            }
-            currentPosition++;
-        }
+        currentPosition = pageIndex.buildPage(currentPosition, outputChannels, pageBuilder);
 
         // output the page if we have any data
         if (pageBuilder.isEmpty()) {
@@ -228,30 +206,12 @@ public class OrderByOperator
         return page;
     }
 
-    private static boolean[] defaultSortOrder(List<TupleInfo> sourceTupleInfos, int orderByChannel)
+    private static List<Type> toTypes(List<? extends Type> sourceTypes, List<Integer> outputChannels)
     {
-        TupleInfo orderByTupleInfo = sourceTupleInfos.get(orderByChannel);
-        boolean[] sortOrder = new boolean[orderByTupleInfo.getFieldCount()];
-        BooleanArrays.fill(sortOrder, true);
-        return sortOrder;
-    }
-
-    private static int[] defaultSortFields(List<TupleInfo> sourceTupleInfos, int orderByChannel)
-    {
-        TupleInfo orderByTupleInfo = sourceTupleInfos.get(orderByChannel);
-        int[] sortFields = new int[orderByTupleInfo.getFieldCount()];
-        for (int i = 0; i < sortFields.length; i++) {
-            sortFields[i] = i;
-        }
-        return sortFields;
-    }
-
-    private static List<TupleInfo> toTupleInfos(List<TupleInfo> sourceTupleInfos, int[] outputChannels)
-    {
-        ImmutableList.Builder<TupleInfo> tupleInfos = ImmutableList.builder();
+        ImmutableList.Builder<Type> types = ImmutableList.builder();
         for (int channel : outputChannels) {
-            tupleInfos.add(sourceTupleInfos.get(channel));
+            types.add(sourceTypes.get(channel));
         }
-        return tupleInfos.build();
+        return types.build();
     }
 }

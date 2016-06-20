@@ -15,6 +15,7 @@ package com.facebook.presto.event.query;
 
 import com.facebook.presto.execution.QueryId;
 import com.facebook.presto.execution.QueryState;
+import com.facebook.presto.spi.ErrorCode;
 import com.google.common.collect.ImmutableList;
 import io.airlift.event.client.EventField;
 import io.airlift.event.client.EventType;
@@ -28,15 +29,16 @@ import javax.annotation.concurrent.Immutable;
 import java.net.URI;
 import java.util.List;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
 @Immutable
 @EventType("QueryCompletion")
 public class QueryCompletionEvent
 {
     private final QueryId queryId;
+    private final String transactionId;
     private final String user;
+    private final String principal;
     private final String source;
+    private final String serverVersion;
     private final String environment;
     private final String catalog;
     private final String schema;
@@ -46,6 +48,8 @@ public class QueryCompletionEvent
     private final URI uri;
     private final List<String> fieldNames;
     private final String query;
+
+    private final Long peakMemoryBytes;
 
     private final DateTime createTime;
     private final DateTime executionStartTime;
@@ -61,18 +65,25 @@ public class QueryCompletionEvent
 
     private final Integer splits;
 
+    private final ErrorCode errorCode;
     private final String failureType;
     private final String failureMessage;
+    private final String failureTask;
+    private final String failureHost;
 
     private final String outputStageJson;
     private final String failuresJson;
 
     private final String inputsJson;
+    private final String sessionPropertiesJson;
 
     public QueryCompletionEvent(
             QueryId queryId,
+            String transactionId,
             String user,
+            String principal,
             String source,
+            String serverVersion,
             String environment,
             String catalog,
             String schema,
@@ -82,6 +93,7 @@ public class QueryCompletionEvent
             URI uri,
             List<String> fieldNames,
             String query,
+            Long peakMemoryBytes,
             DateTime createTime,
             DateTime executionStartTime,
             DateTime endTime,
@@ -93,15 +105,22 @@ public class QueryCompletionEvent
             DataSize totalDataSize,
             Long totalRows,
             Integer splits,
+            ErrorCode errorCode,
             String failureType,
             String failureMessage,
+            String failureTask,
+            String failureHost,
             String outputStageJson,
             String failuresJson,
-            String inputsJson)
+            String inputsJson,
+            String sessionPropertiesJson)
     {
         this.queryId = queryId;
+        this.transactionId = transactionId;
         this.user = user;
+        this.principal = principal;
         this.source = source;
+        this.serverVersion = serverVersion;
         this.environment = environment;
         this.catalog = catalog;
         this.schema = schema;
@@ -109,7 +128,9 @@ public class QueryCompletionEvent
         this.userAgent = userAgent;
         this.queryState = queryState;
         this.uri = uri;
+        this.errorCode = errorCode;
         this.fieldNames = ImmutableList.copyOf(fieldNames);
+        this.peakMemoryBytes = peakMemoryBytes;
         this.query = query;
         this.createTime = createTime;
         this.executionStartTime = executionStartTime;
@@ -124,9 +145,12 @@ public class QueryCompletionEvent
         this.splits = splits;
         this.failureType = failureType;
         this.failureMessage = failureMessage;
+        this.failureTask = failureTask;
+        this.failureHost = failureHost;
         this.outputStageJson = outputStageJson;
         this.failuresJson = failuresJson;
         this.inputsJson = inputsJson;
+        this.sessionPropertiesJson = sessionPropertiesJson;
     }
 
     @Nullable
@@ -154,15 +178,33 @@ public class QueryCompletionEvent
     }
 
     @EventField
+    public String getTransactionId()
+    {
+        return transactionId;
+    }
+
+    @EventField
     public String getUser()
     {
         return user;
     }
 
     @EventField
+    public String getPrincipal()
+    {
+        return principal;
+    }
+
+    @EventField
     public String getSource()
     {
         return source;
+    }
+
+    @EventField
+    public String getServerVersion()
+    {
+        return serverVersion;
     }
 
     @EventField
@@ -217,6 +259,12 @@ public class QueryCompletionEvent
     public String getQuery()
     {
         return query;
+    }
+
+    @EventField
+    public Long getPeakMemoryBytes()
+    {
+        return peakMemoryBytes;
     }
 
     @EventField
@@ -333,6 +381,18 @@ public class QueryCompletionEvent
     }
 
     @EventField
+    public Integer getErrorCode()
+    {
+        return errorCode == null ? null : errorCode.getCode();
+    }
+
+    @EventField
+    public String getErrorCodeName()
+    {
+        return errorCode == null ? null : errorCode.getName();
+    }
+
+    @EventField
     public String getFailureType()
     {
         return failureType;
@@ -342,6 +402,18 @@ public class QueryCompletionEvent
     public String getFailureMessage()
     {
         return failureMessage;
+    }
+
+    @EventField
+    public String getFailureTask()
+    {
+        return failureTask;
+    }
+
+    @EventField
+    public String getFailureHost()
+    {
+        return failureHost;
     }
 
     @EventField
@@ -360,5 +432,11 @@ public class QueryCompletionEvent
     public String getInputsJson()
     {
         return inputsJson;
+    }
+
+    @EventField
+    public String getSessionPropertiesJson()
+    {
+        return sessionPropertiesJson;
     }
 }

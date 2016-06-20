@@ -13,36 +13,69 @@
  */
 package com.facebook.presto.connector.system;
 
-import com.facebook.presto.spi.Connector;
-import com.facebook.presto.spi.ConnectorHandleResolver;
-import com.facebook.presto.spi.ConnectorMetadata;
-import com.facebook.presto.spi.ConnectorSplitManager;
-import com.facebook.presto.split.ConnectorDataStreamProvider;
-import com.google.common.collect.ClassToInstanceMap;
-import com.google.common.collect.ImmutableClassToInstanceMap;
+import com.facebook.presto.spi.NodeManager;
+import com.facebook.presto.spi.SystemTable;
+import com.facebook.presto.spi.connector.ConnectorMetadata;
+import com.facebook.presto.spi.connector.ConnectorRecordSetProvider;
+import com.facebook.presto.spi.connector.ConnectorSplitManager;
+import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
+import com.facebook.presto.spi.transaction.IsolationLevel;
+import com.facebook.presto.transaction.InternalConnector;
+import com.facebook.presto.transaction.TransactionId;
 
-import javax.inject.Inject;
+import java.util.Set;
+import java.util.function.Function;
+
+import static java.util.Objects.requireNonNull;
 
 public class SystemConnector
-        implements Connector
+        implements InternalConnector
 {
-    private final ClassToInstanceMap<Object> services;
+    private final String connectorId;
+    private final ConnectorMetadata metadata;
+    private final ConnectorSplitManager splitManager;
+    private final ConnectorRecordSetProvider recordSetProvider;
+    private final Function<TransactionId, ConnectorTransactionHandle> transactionHandleFunction;
 
-    @Inject
-    public SystemConnector(SystemTablesMetadata value, SystemSplitManager systemSplitManager, SystemDataStreamProvider systemDataStreamProvider)
+    public SystemConnector(
+            String connectorId,
+            NodeManager nodeManager,
+            Set<SystemTable> tables,
+            Function<TransactionId, ConnectorTransactionHandle> transactionHandleFunction)
     {
-        ImmutableClassToInstanceMap.Builder<Object> services = ImmutableClassToInstanceMap.builder();
-        services.put(ConnectorMetadata.class, value);
-        services.put(ConnectorSplitManager.class, systemSplitManager);
-        services.put(ConnectorDataStreamProvider.class, systemDataStreamProvider);
-        services.put(ConnectorHandleResolver.class, new SystemHandleResolver());
+        requireNonNull(connectorId, "connectorId is null");
+        requireNonNull(nodeManager, "nodeManager is null");
+        requireNonNull(tables, "tables is null");
+        requireNonNull(transactionHandleFunction, "transactionHandleFunction is null");
 
-        this.services = services.build();
+        this.connectorId = connectorId;
+        this.metadata = new SystemTablesMetadata(connectorId, tables);
+        this.splitManager = new SystemSplitManager(nodeManager, tables);
+        this.recordSetProvider = new SystemRecordSetProvider(tables);
+        this.transactionHandleFunction = transactionHandleFunction;
     }
 
     @Override
-    public <T> T getService(Class<T> type)
+    public ConnectorTransactionHandle beginTransaction(TransactionId transactionId, IsolationLevel isolationLevel, boolean readOnly)
     {
-        return services.getInstance(type);
+        return new SystemTransactionHandle(connectorId, transactionHandleFunction.apply(transactionId));
+    }
+
+    @Override
+    public ConnectorMetadata getMetadata(ConnectorTransactionHandle transactionHandle)
+    {
+        return metadata;
+    }
+
+    @Override
+    public ConnectorSplitManager getSplitManager()
+    {
+        return splitManager;
+    }
+
+    @Override
+    public ConnectorRecordSetProvider getRecordSetProvider()
+    {
+        return recordSetProvider;
     }
 }

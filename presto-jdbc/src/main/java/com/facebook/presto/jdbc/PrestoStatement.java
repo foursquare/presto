@@ -13,17 +13,24 @@
  */
 package com.facebook.presto.jdbc;
 
+import com.facebook.presto.client.StatementClient;
+import com.google.common.primitives.Ints;
+
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
 import java.sql.SQLWarning;
 import java.sql.Statement;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static com.facebook.presto.jdbc.PrestoResultSet.resultsException;
+import static java.util.Objects.requireNonNull;
 
 public class PrestoStatement
         implements Statement
@@ -34,29 +41,34 @@ public class PrestoStatement
     private final AtomicBoolean escapeProcessing = new AtomicBoolean(true);
     private final AtomicBoolean closeOnCompletion = new AtomicBoolean();
     private final AtomicReference<PrestoConnection> connection;
+    private final AtomicReference<ResultSet> currentResult = new AtomicReference<>();
+    private final AtomicLong currentUpdateCount = new AtomicLong(-1);
+    private final AtomicReference<Optional<Consumer<QueryStats>>> progressCallback = new AtomicReference<>(Optional.empty());
+    private final Consumer<QueryStats> progressConsumer = value -> progressCallback.get().ifPresent(callback -> callback.accept(value));
 
     PrestoStatement(PrestoConnection connection)
     {
-        this.connection = new AtomicReference<>(checkNotNull(connection, "connection is null"));
+        this.connection = new AtomicReference<>(requireNonNull(connection, "connection is null"));
+    }
+
+    public void setProgressMonitor(Consumer<QueryStats> progressMonitor)
+    {
+        progressCallback.set(Optional.of(requireNonNull(progressMonitor, "progressMonitor is null")));
+    }
+
+    public void clearProgressMonitor()
+    {
+        progressCallback.set(Optional.empty());
     }
 
     @Override
     public ResultSet executeQuery(String sql)
             throws SQLException
     {
-        try {
-            return new PrestoResultSet(connection().startQuery(sql));
+        if (!execute(sql)) {
+            throw new SQLException("SQL statement is not a query: " + sql);
         }
-        catch (RuntimeException e) {
-            throw new SQLException("Error executing query", e);
-        }
-    }
-
-    @Override
-    public int executeUpdate(String sql)
-            throws SQLException
-    {
-        throw new UnsupportedOperationException("executeUpdate");
+        return currentResult.get();
     }
 
     @Override
@@ -137,7 +149,7 @@ public class PrestoStatement
     public void cancel()
             throws SQLException
     {
-        throw new UnsupportedOperationException("cancel");
+        throw new SQLFeatureNotSupportedException("cancel");
     }
 
     @Override
@@ -167,28 +179,87 @@ public class PrestoStatement
     public boolean execute(String sql)
             throws SQLException
     {
-        throw new UnsupportedOperationException("execute");
+        clearCurrentResults();
+        checkOpen();
+
+        StatementClient client = null;
+        ResultSet resultSet = null;
+        try {
+            client = connection().startQuery(sql);
+            if (client.isFailed()) {
+                throw resultsException(client.finalResults());
+            }
+
+            resultSet = new PrestoResultSet(client, progressConsumer);
+            checkSetOrResetSession(client);
+
+            // check if this is a query
+            if (client.current().getUpdateType() == null) {
+                currentResult.set(resultSet);
+                return true;
+            }
+
+            // this is an update, not a query
+            while (resultSet.next()) {
+                // ignore rows
+            }
+
+            Long updateCount = client.finalResults().getUpdateCount();
+            currentUpdateCount.set((updateCount != null) ? updateCount : 0);
+
+            return false;
+        }
+        catch (RuntimeException e) {
+            throw new SQLException("Error executing query", e);
+        }
+        finally {
+            if (currentResult.get() == null) {
+                if (resultSet != null) {
+                    resultSet.close();
+                }
+                if (client != null) {
+                    client.close();
+                }
+            }
+        }
+    }
+
+    private void clearCurrentResults()
+    {
+        currentResult.set(null);
+        currentUpdateCount.set(-1);
     }
 
     @Override
     public ResultSet getResultSet()
             throws SQLException
     {
-        throw new UnsupportedOperationException("getResultSet");
+        checkOpen();
+        return currentResult.get();
     }
 
     @Override
     public int getUpdateCount()
             throws SQLException
     {
-        throw new UnsupportedOperationException("getUpdateCount");
+        return Ints.saturatedCast(getLargeUpdateCount());
+    }
+
+    @Override
+    public long getLargeUpdateCount()
+            throws SQLException
+    {
+        checkOpen();
+        return currentUpdateCount.get();
     }
 
     @Override
     public boolean getMoreResults()
             throws SQLException
     {
-        throw new UnsupportedOperationException("getMoreResults");
+        checkOpen();
+        currentResult.get().close();
+        return false;
     }
 
     @Override
@@ -280,56 +351,105 @@ public class PrestoStatement
     public boolean getMoreResults(int current)
             throws SQLException
     {
-        throw new UnsupportedOperationException("getMoreResults");
+        checkOpen();
+
+        if (current == CLOSE_CURRENT_RESULT) {
+            currentResult.get().close();
+            return false;
+        }
+
+        if (current != KEEP_CURRENT_RESULT && current != CLOSE_ALL_RESULTS) {
+            throw new SQLException("Invalid argument: " + current);
+        }
+
+        throw new SQLFeatureNotSupportedException("Multiple open results not supported");
     }
 
     @Override
     public ResultSet getGeneratedKeys()
             throws SQLException
     {
-        throw new UnsupportedOperationException("getGeneratedKeys");
+        throw new SQLFeatureNotSupportedException("getGeneratedKeys");
+    }
+
+    @Override
+    public int executeUpdate(String sql)
+            throws SQLException
+    {
+        return Ints.saturatedCast(executeLargeUpdate(sql));
     }
 
     @Override
     public int executeUpdate(String sql, int autoGeneratedKeys)
             throws SQLException
     {
-        throw new UnsupportedOperationException("executeUpdate");
+        return executeUpdate(sql);
     }
 
     @Override
     public int executeUpdate(String sql, int[] columnIndexes)
             throws SQLException
     {
-        throw new UnsupportedOperationException("executeUpdate");
+        return executeUpdate(sql);
     }
 
     @Override
     public int executeUpdate(String sql, String[] columnNames)
             throws SQLException
     {
-        throw new UnsupportedOperationException("executeUpdate");
+        return executeUpdate(sql);
+    }
+
+    @Override
+    public long executeLargeUpdate(String sql)
+            throws SQLException
+    {
+        if (execute(sql)) {
+            throw new SQLException("SQL is not an update statement: " + sql);
+        }
+        return currentUpdateCount.get();
+    }
+
+    @Override
+    public long executeLargeUpdate(String sql, int autoGeneratedKeys)
+            throws SQLException
+    {
+        return executeLargeUpdate(sql);
+    }
+
+    @Override
+    public long executeLargeUpdate(String sql, int[] columnIndexes)
+            throws SQLException
+    {
+        return executeLargeUpdate(sql);
+    }
+
+    @Override
+    public long executeLargeUpdate(String sql, String[] columnNames)
+            throws SQLException
+    {
+        return executeLargeUpdate(sql);
     }
 
     @Override
     public boolean execute(String sql, int autoGeneratedKeys)
             throws SQLException
     {
-        throw new UnsupportedOperationException("execute");
+        return execute(sql);
     }
 
     @Override
     public boolean execute(String sql, int[] columnIndexes)
             throws SQLException
     {
-        throw new UnsupportedOperationException("execute");
+        return execute(sql);
     }
 
     @Override
     public boolean execute(String sql, String[] columnNames)
             throws SQLException
     {
-        throw new UnsupportedOperationException("execute");
+        return execute(sql);
     }
 
     @Override
@@ -420,5 +540,14 @@ public class PrestoStatement
         return (direction == ResultSet.FETCH_FORWARD) ||
                 (direction == ResultSet.FETCH_REVERSE) ||
                 (direction == ResultSet.FETCH_UNKNOWN);
+    }
+
+    private static void checkSetOrResetSession(StatementClient client) throws SQLException
+    {
+        if (!client.getSetSessionProperties().isEmpty() || !client.getResetSessionProperties().isEmpty()) {
+            throw new SQLFeatureNotSupportedException(
+                    "SET/RESET SESSION is not supported via JDBC. " +
+                    "Use the setSessionProperty() method on PrestoConnection.");
+        }
     }
 }

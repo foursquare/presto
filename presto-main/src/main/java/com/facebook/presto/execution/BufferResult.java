@@ -13,87 +13,108 @@
  */
 package com.facebook.presto.execution;
 
-import com.facebook.presto.operator.Page;
-import com.google.common.base.Objects;
+import com.facebook.presto.spi.Page;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Objects;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.MoreObjects.toStringHelper;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Strings.isNullOrEmpty;
+import static java.util.Objects.requireNonNull;
 
 public class BufferResult
 {
-    public static BufferResult emptyResults(long endSequenceId, boolean bufferClosed)
+    public static BufferResult emptyResults(String taskInstanceId, long token, boolean bufferComplete)
     {
-        return new BufferResult(endSequenceId, bufferClosed, ImmutableList.<Page>of());
+        return new BufferResult(taskInstanceId, token, token, bufferComplete, ImmutableList.<Page>of());
     }
 
-    public static BufferResult bufferResult(long startingSequenceId, Page firstElement, Page... otherElements)
+    private final String taskInstanceId;
+    private final long token;
+    private final long nextToken;
+    private final boolean bufferComplete;
+    private final List<Page> pages;
+
+    public BufferResult(String taskInstanceId, long token, long nextToken, boolean bufferComplete, List<Page> pages)
     {
-        return new BufferResult(startingSequenceId, false, ImmutableList.<Page>builder().add(firstElement).add(otherElements).build());
+        checkArgument(!isNullOrEmpty(taskInstanceId), "taskInstanceId is null");
+
+        this.taskInstanceId = taskInstanceId;
+        this.token = token;
+        this.nextToken = nextToken;
+        this.bufferComplete = bufferComplete;
+        this.pages = ImmutableList.copyOf(requireNonNull(pages, "pages is null"));
     }
 
-    private final long startingSequenceId;
-    private final boolean bufferClosed;
-    private final List<Page> elements;
-
-    public BufferResult(long startingSequenceId, boolean bufferClosed, List<Page> elements)
+    public long getToken()
     {
-        this.startingSequenceId = startingSequenceId;
-        this.bufferClosed = bufferClosed;
-        this.elements = ImmutableList.copyOf(checkNotNull(elements, "pages is null"));
+        return token;
     }
 
-    public long getStartingSequenceId()
+    public long getNextToken()
     {
-        return startingSequenceId;
+        return nextToken;
     }
 
-    public boolean isBufferClosed()
+    public boolean isBufferComplete()
     {
-        return bufferClosed;
+        return bufferComplete;
     }
 
-    public List<Page> getElements()
+    public List<Page> getPages()
     {
-        return elements;
+        return pages;
     }
 
     public int size()
     {
-        return elements.size();
+        return pages.size();
     }
 
     public boolean isEmpty()
     {
-        return elements.isEmpty();
+        return pages.isEmpty();
+    }
+
+    public String getTaskInstanceId()
+    {
+        return taskInstanceId;
+    }
+
+    @Override
+    public boolean equals(Object o)
+    {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        BufferResult that = (BufferResult) o;
+        return Objects.equals(token, that.token) &&
+                Objects.equals(nextToken, that.nextToken) &&
+                Objects.equals(taskInstanceId, that.taskInstanceId) &&
+                Objects.equals(bufferComplete, that.bufferComplete) &&
+                Objects.equals(pages, that.pages);
     }
 
     @Override
     public int hashCode()
     {
-        return Objects.hashCode(bufferClosed, elements);
-    }
-
-    @Override
-    public boolean equals(Object obj)
-    {
-        if (this == obj) {
-            return true;
-        }
-        if (obj == null || getClass() != obj.getClass()) {
-            return false;
-        }
-        final BufferResult other = (BufferResult) obj;
-        return Objects.equal(this.bufferClosed, other.bufferClosed) && Objects.equal(this.elements, other.elements);
+        return Objects.hash(token, nextToken, taskInstanceId, bufferComplete, pages);
     }
 
     @Override
     public String toString()
     {
-        return Objects.toStringHelper(this)
-                .add("bufferClosed", bufferClosed)
-                .add("elements", elements)
+        return toStringHelper(this)
+                .add("token", token)
+                .add("nextToken", nextToken)
+                .add("taskInstanceId", taskInstanceId)
+                .add("bufferComplete", bufferComplete)
+                .add("pages", pages)
                 .toString();
     }
 }

@@ -13,23 +13,20 @@
  */
 package com.facebook.presto.operator.scalar;
 
-import com.facebook.presto.sql.gen.DefaultFunctionBinder;
-import com.facebook.presto.sql.gen.FunctionBinder;
-
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 @Retention(RetentionPolicy.RUNTIME)
-@Target(ElementType.METHOD)
+@Target({ElementType.METHOD, ElementType.TYPE})
 public @interface ScalarFunction
 {
     String value() default "";
 
     String[] alias() default {};
 
-    boolean deterministic() default true;
+    boolean hidden() default false;
 
-    Class<? extends FunctionBinder> functionBinder() default DefaultFunctionBinder.class;
+    boolean deterministic() default true;
 }

@@ -14,6 +14,7 @@
 package com.facebook.presto.execution;
 
 import io.airlift.configuration.Config;
+import io.airlift.configuration.DefunctConfig;
 import io.airlift.units.Duration;
 import io.airlift.units.MinDuration;
 
@@ -22,28 +23,97 @@ import javax.validation.constraints.NotNull;
 
 import java.util.concurrent.TimeUnit;
 
+@DefunctConfig({"query.max-pending-splits-per-node",
+                "experimental.big-query-initial-hash-partitions",
+                "experimental.max-concurrent-big-queries",
+                "experimental.max-queued-big-queries",
+                "query.remote-task.max-consecutive-error-count"})
 public class QueryManagerConfig
 {
-    private int maxPendingSplitsPerNode = 100;
+    private int scheduleSplitBatchSize = 1000;
+    private int maxConcurrentQueries = 1000;
+    private int maxQueuedQueries = 5000;
+    private String queueConfigFile;
+
+    private int initialHashPartitions = 8;
     private Duration maxQueryAge = new Duration(15, TimeUnit.MINUTES);
     private int maxQueryHistory = 100;
     private Duration clientTimeout = new Duration(5, TimeUnit.MINUTES);
 
     private int queryManagerExecutorPoolSize = 5;
 
-    private int remoteTaskMaxConsecutiveErrorCount = 10;
     private Duration remoteTaskMinErrorDuration = new Duration(2, TimeUnit.MINUTES);
+    private int remoteTaskMaxCallbackThreads = 1000;
 
-    @Min(1)
-    public int getMaxPendingSplitsPerNode()
+    private String queryExecutionPolicy = "all-at-once";
+    private Duration queryMaxRunTime = new Duration(100, TimeUnit.DAYS);
+    private Duration queryMaxCpuTime = new Duration(1_000_000_000, TimeUnit.DAYS);
+
+    public String getQueueConfigFile()
     {
-        return maxPendingSplitsPerNode;
+        return queueConfigFile;
     }
 
-    @Config("query.max-pending-splits-per-node")
-    public QueryManagerConfig setMaxPendingSplitsPerNode(int maxPendingSplitsPerNode)
+    @Config("query.queue-config-file")
+    public QueryManagerConfig setQueueConfigFile(String queueConfigFile)
     {
-        this.maxPendingSplitsPerNode = maxPendingSplitsPerNode;
+        this.queueConfigFile = queueConfigFile;
+        return this;
+    }
+
+    @Min(1)
+    public int getScheduleSplitBatchSize()
+    {
+        return scheduleSplitBatchSize;
+    }
+
+    @Config("query.schedule-split-batch-size")
+    public QueryManagerConfig setScheduleSplitBatchSize(int scheduleSplitBatchSize)
+    {
+        this.scheduleSplitBatchSize = scheduleSplitBatchSize;
+        return this;
+    }
+
+    @Deprecated
+    @Min(1)
+    public int getMaxConcurrentQueries()
+    {
+        return maxConcurrentQueries;
+    }
+
+    @Deprecated
+    @Config("query.max-concurrent-queries")
+    public QueryManagerConfig setMaxConcurrentQueries(int maxConcurrentQueries)
+    {
+        this.maxConcurrentQueries = maxConcurrentQueries;
+        return this;
+    }
+
+    @Deprecated
+    @Min(1)
+    public int getMaxQueuedQueries()
+    {
+        return maxQueuedQueries;
+    }
+
+    @Deprecated
+    @Config("query.max-queued-queries")
+    public QueryManagerConfig setMaxQueuedQueries(int maxQueuedQueries)
+    {
+        this.maxQueuedQueries = maxQueuedQueries;
+        return this;
+    }
+
+    @Min(1)
+    public int getInitialHashPartitions()
+    {
+        return initialHashPartitions;
+    }
+
+    @Config("query.initial-hash-partitions")
+    public QueryManagerConfig setInitialHashPartitions(int initialHashPartitions)
+    {
+        this.initialHashPartitions = initialHashPartitions;
         return this;
     }
 
@@ -100,20 +170,8 @@ public class QueryManagerConfig
         return this;
     }
 
-    @Min(0)
-    public int getRemoteTaskMaxConsecutiveErrorCount()
-    {
-        return remoteTaskMaxConsecutiveErrorCount;
-    }
-
-    @Config("query.remote-task.max-consecutive-error-count")
-    public QueryManagerConfig setRemoteTaskMaxConsecutiveErrorCount(int remoteTaskMaxConsecutiveErrorCount)
-    {
-        this.remoteTaskMaxConsecutiveErrorCount = remoteTaskMaxConsecutiveErrorCount;
-        return this;
-    }
-
     @NotNull
+    @MinDuration("1s")
     public Duration getRemoteTaskMinErrorDuration()
     {
         return remoteTaskMinErrorDuration;
@@ -123,6 +181,59 @@ public class QueryManagerConfig
     public QueryManagerConfig setRemoteTaskMinErrorDuration(Duration remoteTaskMinErrorDuration)
     {
         this.remoteTaskMinErrorDuration = remoteTaskMinErrorDuration;
+        return this;
+    }
+
+    @NotNull
+    public Duration getQueryMaxRunTime()
+    {
+        return queryMaxRunTime;
+    }
+
+    @Config("query.max-run-time")
+    public QueryManagerConfig setQueryMaxRunTime(Duration queryMaxRunTime)
+    {
+        this.queryMaxRunTime = queryMaxRunTime;
+        return this;
+    }
+
+    @NotNull
+    @MinDuration("1ns")
+    public Duration getQueryMaxCpuTime()
+    {
+        return queryMaxCpuTime;
+    }
+
+    @Config("query.max-cpu-time")
+    public QueryManagerConfig setQueryMaxCpuTime(Duration queryMaxCpuTime)
+    {
+        this.queryMaxCpuTime = queryMaxCpuTime;
+        return this;
+    }
+
+    @Min(1)
+    public int getRemoteTaskMaxCallbackThreads()
+    {
+        return remoteTaskMaxCallbackThreads;
+    }
+
+    @Config("query.remote-task.max-callback-threads")
+    public QueryManagerConfig setRemoteTaskMaxCallbackThreads(int remoteTaskMaxCallbackThreads)
+    {
+        this.remoteTaskMaxCallbackThreads = remoteTaskMaxCallbackThreads;
+        return this;
+    }
+
+    @NotNull
+    public String getQueryExecutionPolicy()
+    {
+        return queryExecutionPolicy;
+    }
+
+    @Config("query.execution-policy")
+    public QueryManagerConfig setQueryExecutionPolicy(String queryExecutionPolicy)
+    {
+        this.queryExecutionPolicy = queryExecutionPolicy;
         return this;
     }
 }

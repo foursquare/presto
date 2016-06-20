@@ -13,15 +13,11 @@
  */
 package com.facebook.presto.example;
 
-import com.facebook.presto.spi.Connector;
-import com.facebook.presto.spi.ConnectorFactory;
 import com.facebook.presto.spi.ConnectorHandleResolver;
-import com.facebook.presto.spi.ConnectorMetadata;
-import com.facebook.presto.spi.ConnectorRecordSetProvider;
-import com.facebook.presto.spi.ConnectorSplitManager;
+import com.facebook.presto.spi.connector.Connector;
+import com.facebook.presto.spi.connector.ConnectorFactory;
+import com.facebook.presto.spi.type.TypeManager;
 import com.google.common.base.Throwables;
-import com.google.common.collect.ClassToInstanceMap;
-import com.google.common.collect.ImmutableClassToInstanceMap;
 import com.google.common.collect.ImmutableMap;
 import com.google.inject.Injector;
 import io.airlift.bootstrap.Bootstrap;
@@ -29,16 +25,18 @@ import io.airlift.json.JsonModule;
 
 import java.util.Map;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 public class ExampleConnectorFactory
         implements ConnectorFactory
 {
+    private final TypeManager typeManager;
     private final Map<String, String> optionalConfig;
 
-    public ExampleConnectorFactory(Map<String, String> optionalConfig)
+    public ExampleConnectorFactory(TypeManager typeManager, Map<String, String> optionalConfig)
     {
-        this.optionalConfig = ImmutableMap.copyOf(checkNotNull(optionalConfig, "optionalConfig is null"));
+        this.typeManager = requireNonNull(typeManager, "typeManager is null");
+        this.optionalConfig = ImmutableMap.copyOf(requireNonNull(optionalConfig, "optionalConfig is null"));
     }
 
     @Override
@@ -48,32 +46,29 @@ public class ExampleConnectorFactory
     }
 
     @Override
+    public ConnectorHandleResolver getHandleResolver()
+    {
+        return new ExampleHandleResolver();
+    }
+
+    @Override
     public Connector create(final String connectorId, Map<String, String> requiredConfig)
     {
-        checkNotNull(requiredConfig, "requiredConfig is null");
-        checkNotNull(optionalConfig, "optionalConfig is null");
-
+        requireNonNull(requiredConfig, "requiredConfig is null");
         try {
             // A plugin is not required to use Guice; it is just very convenient
             Bootstrap app = new Bootstrap(
                     new JsonModule(),
-                    new ExampleModule(connectorId));
+                    new ExampleModule(connectorId, typeManager));
 
-            Injector injector = app
+        Injector injector = app
                     .strictConfig()
                     .doNotInitializeLogging()
                     .setRequiredConfigurationProperties(requiredConfig)
                     .setOptionalConfigurationProperties(optionalConfig)
                     .initialize();
 
-            ClassToInstanceMap<Object> services = ImmutableClassToInstanceMap.builder()
-                    .put(ConnectorMetadata.class, injector.getInstance(ExampleMetadata.class))
-                    .put(ConnectorSplitManager.class, injector.getInstance(ExampleSplitManager.class))
-                    .put(ConnectorRecordSetProvider.class, injector.getInstance(ExampleRecordSetProvider.class))
-                    .put(ConnectorHandleResolver.class, injector.getInstance(ExampleHandleResolver.class))
-                    .build();
-
-            return new ExampleConnector(services);
+            return injector.getInstance(ExampleConnector.class);
         }
         catch (Exception e) {
             throw Throwables.propagate(e);

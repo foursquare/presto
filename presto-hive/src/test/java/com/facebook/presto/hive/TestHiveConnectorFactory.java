@@ -13,19 +13,21 @@
  */
 package com.facebook.presto.hive;
 
-import com.facebook.presto.spi.Connector;
-import com.facebook.presto.spi.ConnectorHandleResolver;
-import com.facebook.presto.spi.ConnectorMetadata;
-import com.facebook.presto.spi.ConnectorRecordSetProvider;
-import com.facebook.presto.spi.ConnectorSplitManager;
-import com.facebook.presto.spi.classloader.ClassLoaderSafeConnectorHandleResolver;
-import com.facebook.presto.spi.classloader.ClassLoaderSafeConnectorMetadata;
-import com.facebook.presto.spi.classloader.ClassLoaderSafeConnectorRecordSetProvider;
-import com.facebook.presto.spi.classloader.ClassLoaderSafeConnectorSplitManager;
+import com.facebook.presto.GroupByHashPageIndexerFactory;
+import com.facebook.presto.metadata.InMemoryNodeManager;
+import com.facebook.presto.spi.connector.Connector;
+import com.facebook.presto.spi.connector.ConnectorPageSourceProvider;
+import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
+import com.facebook.presto.spi.connector.classloader.ClassLoaderSafeConnectorMetadata;
+import com.facebook.presto.spi.connector.classloader.ClassLoaderSafeConnectorSplitManager;
+import com.facebook.presto.type.TypeRegistry;
 import com.google.common.collect.ImmutableMap;
 import org.testng.annotations.Test;
 
+import static com.facebook.presto.spi.transaction.IsolationLevel.READ_UNCOMMITTED;
+import static io.airlift.testing.Assertions.assertContains;
 import static io.airlift.testing.Assertions.assertInstanceOf;
+import static org.testng.Assert.fail;
 
 public class TestHiveConnectorFactory
 {
@@ -33,7 +35,14 @@ public class TestHiveConnectorFactory
     public void testGetClient()
     {
         assertCreateConnector("thrift://localhost:1234");
-        assertCreateConnector("discovery::");
+        assertCreateConnector("thrift://localhost:1234,thrift://192.0.2.3:5678");
+
+        assertCreateConnectorFails("abc", "metastoreUri scheme is missing: abc");
+        assertCreateConnectorFails("thrift://:8090", "metastoreUri host is missing: thrift://:8090");
+        assertCreateConnectorFails("thrift://localhost", "metastoreUri port is missing: thrift://localhost");
+        assertCreateConnectorFails("abc::", "metastoreUri scheme must be thrift: abc::");
+        assertCreateConnectorFails("", "metastoreUris must specify at least one URI");
+        assertCreateConnectorFails("thrift://localhost:1234,thrift://test-1", "metastoreUri port is missing: thrift://test-1");
     }
 
     private static void assertCreateConnector(String metastoreUri)
@@ -44,12 +53,28 @@ public class TestHiveConnectorFactory
                         .put("node.environment", "test")
                         .put("hive.metastore.uri", metastoreUri)
                         .build(),
-                HiveConnector.class.getClassLoader());
+                HiveConnector.class.getClassLoader(),
+                null,
+                new TypeRegistry(),
+                new GroupByHashPageIndexerFactory(),
+                new InMemoryNodeManager());
 
         Connector connector = connectorFactory.create("hive-test", ImmutableMap.<String, String>of());
-        assertInstanceOf(connector.getService(ConnectorMetadata.class), ClassLoaderSafeConnectorMetadata.class);
-        assertInstanceOf(connector.getService(ConnectorSplitManager.class), ClassLoaderSafeConnectorSplitManager.class);
-        assertInstanceOf(connector.getService(ConnectorRecordSetProvider.class), ClassLoaderSafeConnectorRecordSetProvider.class);
-        assertInstanceOf(connector.getService(ConnectorHandleResolver.class), ClassLoaderSafeConnectorHandleResolver.class);
+        ConnectorTransactionHandle transaction = connector.beginTransaction(READ_UNCOMMITTED, true);
+        assertInstanceOf(connector.getMetadata(transaction), ClassLoaderSafeConnectorMetadata.class);
+        assertInstanceOf(connector.getSplitManager(), ClassLoaderSafeConnectorSplitManager.class);
+        assertInstanceOf(connector.getPageSourceProvider(), ConnectorPageSourceProvider.class);
+        connector.commit(transaction);
+    }
+
+    private static void assertCreateConnectorFails(String metastoreUri, String exceptionString)
+    {
+        try {
+            assertCreateConnector(metastoreUri);
+            fail("expected connector creation to fail:" + metastoreUri);
+        }
+        catch (RuntimeException e) {
+            assertContains(e.getMessage(), exceptionString);
+        }
     }
 }

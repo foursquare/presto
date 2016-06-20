@@ -13,18 +13,24 @@
  */
 package com.facebook.presto.sql.planner;
 
+import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.sql.analyzer.Analysis;
-import com.facebook.presto.sql.analyzer.FieldOrExpression;
+import com.facebook.presto.sql.tree.Cast;
+import com.facebook.presto.sql.tree.DereferenceExpression;
 import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.ExpressionRewriter;
 import com.facebook.presto.sql.tree.ExpressionTreeRewriter;
-import com.facebook.presto.sql.tree.QualifiedName;
+import com.facebook.presto.sql.tree.FieldReference;
 import com.facebook.presto.sql.tree.QualifiedNameReference;
 import com.google.common.base.Preconditions;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+
+import static com.facebook.presto.type.TypeRegistry.isTypeOnlyCoercion;
+import static com.google.common.base.Preconditions.checkState;
 
 /**
  * Keeps track of fields and expressions and their mapping to symbols in the current plan
@@ -74,6 +80,11 @@ class TranslationMap
         System.arraycopy(other.fieldSymbols, 0, fieldSymbols, 0, other.fieldSymbols.length);
     }
 
+    public void putExpressionMappingsFrom(TranslationMap other)
+    {
+        expressionMappings.putAll(other.expressionMappings);
+    }
+
     public Expression rewrite(Expression expression)
     {
         // first, translate names from sql-land references to plan symbols
@@ -85,92 +96,110 @@ class TranslationMap
             @Override
             public Expression rewriteExpression(Expression node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
             {
+                // convert expression to qualified name reference (containing a symbol) if rewrite registered
+                Expression rewrittenExpression;
                 Symbol symbol = expressionMappings.get(node);
                 if (symbol != null) {
-                    return new QualifiedNameReference(symbol.toQualifiedName());
+                    rewrittenExpression = new QualifiedNameReference(symbol.toQualifiedName());
+                }
+                else {
+                    rewrittenExpression = treeRewriter.defaultRewrite(node, context);
                 }
 
-                return treeRewriter.defaultRewrite(node, context);
+                return rewrittenExpression;
             }
         }, mapped);
     }
 
-    public Expression rewrite(FieldOrExpression fieldOrExpression)
-    {
-        if (fieldOrExpression.isFieldReference()) {
-            int fieldIndex = fieldOrExpression.getFieldIndex();
-            Symbol symbol = fieldSymbols[fieldIndex];
-            Preconditions.checkState(symbol != null, "No mapping for field '%s'", fieldIndex);
-
-            return new QualifiedNameReference(symbol.toQualifiedName());
-        }
-        else {
-            return rewrite(fieldOrExpression.getExpression());
-        }
-    }
-
     public void put(Expression expression, Symbol symbol)
     {
+        if (expression instanceof FieldReference) {
+            int fieldIndex = ((FieldReference) expression).getFieldIndex();
+            fieldSymbols[fieldIndex] = symbol;
+            expressionMappings.put(new QualifiedNameReference(rewriteBase.getSymbol(fieldIndex).toQualifiedName()), symbol);
+            return;
+        }
+
         Expression translated = translateNamesToSymbols(expression);
         expressionMappings.put(translated, symbol);
 
-        // also update the field mappings if this expression is a simple field reference
-        if (expression instanceof QualifiedNameReference) {
-            int fieldIndex = analysis.getResolvedNames(expression).get(((QualifiedNameReference) expression).getName());
-            fieldSymbols[fieldIndex] = symbol;
-        }
-    }
-
-    public void put(FieldOrExpression fieldOrExpression, Symbol symbol)
-    {
-        if (fieldOrExpression.isFieldReference()) {
-            int fieldIndex = fieldOrExpression.getFieldIndex();
-            fieldSymbols[fieldIndex] = symbol;
-        }
-        else {
-            put(fieldOrExpression.getExpression(), symbol);
-        }
+        // also update the field mappings if this expression is a field reference
+        analysis.getFieldIndex(expression).ifPresent(index -> fieldSymbols[index] = symbol);
     }
 
     public Symbol get(Expression expression)
     {
+        if (expression instanceof FieldReference) {
+            int field = ((FieldReference) expression).getFieldIndex();
+            Preconditions.checkArgument(fieldSymbols[field] != null, "No mapping for field: %s", field);
+            return fieldSymbols[field];
+        }
+
         Expression translated = translateNamesToSymbols(expression);
 
         Preconditions.checkArgument(expressionMappings.containsKey(translated), "No mapping for expression: %s", expression);
         return expressionMappings.get(translated);
     }
 
-    public Symbol get(FieldOrExpression fieldOrExpression)
-    {
-        if (fieldOrExpression.isFieldReference()) {
-            int field = fieldOrExpression.getFieldIndex();
-            Preconditions.checkArgument(fieldSymbols[field] != null, "No mapping for field: %s", field);
-            return fieldSymbols[field];
-        }
-        else {
-            return get(fieldOrExpression.getExpression());
-        }
-    }
-
     private Expression translateNamesToSymbols(Expression expression)
     {
-        final Map<QualifiedName, Integer> resolvedNames = analysis.getResolvedNames(expression);
-        Preconditions.checkArgument(resolvedNames != null, "No resolved names for expression %s", expression);
-
         return ExpressionTreeRewriter.rewriteWith(new ExpressionRewriter<Void>()
         {
             @Override
+            public Expression rewriteExpression(Expression node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
+            {
+                Expression rewrittenExpression = treeRewriter.defaultRewrite(node, context);
+
+                return coerceIfNecessary(node, rewrittenExpression);
+            }
+
+            @Override
+            public Expression rewriteFieldReference(FieldReference node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
+            {
+                Symbol symbol = rewriteBase.getSymbol(node.getFieldIndex());
+                checkState(symbol != null, "No symbol mapping for node '%s' (%s)", node, node.getFieldIndex());
+                return new QualifiedNameReference(symbol.toQualifiedName());
+            }
+
+            @Override
             public Expression rewriteQualifiedNameReference(QualifiedNameReference node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
             {
-                QualifiedName name = node.getName();
+                return rewriteExpressionWithResolvedName(node);
+            }
 
-                Integer fieldIndex = resolvedNames.get(name);
-                Preconditions.checkState(fieldIndex != null, "No field mapping for name '%s'", name);
+            private Expression rewriteExpressionWithResolvedName(Expression node)
+            {
+                Optional<Integer> fieldIndex = analysis.getFieldIndex(node);
+                checkState(fieldIndex.isPresent(), "No field mapping for node '%s'", node);
 
-                Symbol symbol = rewriteBase.getSymbol(fieldIndex);
-                Preconditions.checkState(symbol != null, "No symbol mapping for name '%s' (%s)", name, fieldIndex);
+                Symbol symbol = rewriteBase.getSymbol(fieldIndex.get());
+                checkState(symbol != null, "No symbol mapping for node '%s' (%s)", node, fieldIndex.get());
+                Expression rewrittenExpression = new QualifiedNameReference(symbol.toQualifiedName());
 
-                return new QualifiedNameReference(symbol.toQualifiedName());
+                return coerceIfNecessary(node, rewrittenExpression);
+            }
+
+            @Override
+            public Expression rewriteDereferenceExpression(DereferenceExpression node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
+            {
+                if (analysis.getFieldIndex(node).isPresent()) {
+                    return rewriteExpressionWithResolvedName(node);
+                }
+                return rewriteExpression(node, context, treeRewriter);
+            }
+
+            private Expression coerceIfNecessary(Expression original, Expression rewritten)
+            {
+                Type coercion = analysis.getCoercion(original);
+                if (coercion != null) {
+                    Type type = analysis.getType(original);
+                    rewritten = new Cast(
+                            rewritten,
+                            coercion.getTypeSignature().toString(),
+                            false,
+                            isTypeOnlyCoercion(type, coercion));
+                }
+                return rewritten;
             }
         }, expression);
     }

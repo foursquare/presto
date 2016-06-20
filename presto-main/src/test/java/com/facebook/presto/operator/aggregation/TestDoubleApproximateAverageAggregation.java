@@ -13,57 +13,45 @@
  */
 package com.facebook.presto.operator.aggregation;
 
-import com.facebook.presto.block.Block;
-import com.facebook.presto.block.BlockBuilder;
+import com.facebook.presto.spi.type.Type;
 
-import static com.facebook.presto.operator.aggregation.DoubleApproximateAverageAggregation.DOUBLE_APPROX_AVERAGE;
-import static com.facebook.presto.tuple.TupleInfo.SINGLE_DOUBLE;
+import java.util.List;
+
+import static com.facebook.presto.spi.type.DoubleType.DOUBLE;
 
 public class TestDoubleApproximateAverageAggregation
-        extends AbstractTestAggregationFunction
+        extends AbstractTestApproximateAggregationFunction
 {
     @Override
-    public Block getSequenceBlock(int start, int length)
+    protected Type getType()
     {
-        BlockBuilder blockBuilder = new BlockBuilder(SINGLE_DOUBLE);
-        for (int i = start; i < start + length; i++) {
-            blockBuilder.append((double) i);
+        return DOUBLE;
+    }
+
+    @Override
+    protected Double getExpectedValue(List<Number> values)
+    {
+        int length = 0;
+        double sum = 0;
+
+        for (Number value : values) {
+            if (value == null) {
+                continue;
+            }
+            length++;
+            sum += value.doubleValue();
         }
-        return blockBuilder.build();
-    }
 
-    @Override
-    public AggregationFunction getFunction()
-    {
-        return DOUBLE_APPROX_AVERAGE;
-    }
-
-    @Override
-    public String getExpectedValue(int start, int length)
-    {
         if (length == 0) {
             return null;
         }
 
-        double sum = 0;
-        for (int i = start; i < start + length; i++) {
-            sum += i;
-        }
-
-        double mean = sum / length;
-        double m2 = 0.0;
-        for (int i = start; i < start + length; i++) {
-            m2 += (i - mean) * (i - mean);
-        }
-
-        double variance = m2 / length;
-
-        StringBuilder sb = new StringBuilder();
-        sb.append(mean);
-        sb.append(" +/- ");
-        sb.append((2.575 * Math.sqrt(variance / length)));
-
-        return sb.toString();
+        return sum / length;
     }
 
+    @Override
+    protected String getFunctionName()
+    {
+        return "avg";
+    }
 }

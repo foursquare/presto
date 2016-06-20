@@ -13,16 +13,22 @@
  */
 package com.facebook.presto.operator;
 
-import com.facebook.presto.block.BlockBuilder;
 import com.facebook.presto.spi.RecordCursor;
-import com.facebook.presto.tuple.TupleInfo;
-import com.facebook.presto.tuple.TupleReadable;
+import com.facebook.presto.spi.block.Block;
+import com.facebook.presto.spi.block.BlockBuilder;
+import com.facebook.presto.spi.type.Type;
+
+import java.util.Set;
 
 public interface ProjectionFunction
 {
-    TupleInfo getTupleInfo();
+    Type getType();
 
-    void project(TupleReadable[] cursors, BlockBuilder output);
+    void project(int position, Block[] blocks, BlockBuilder output);
 
     void project(RecordCursor cursor, BlockBuilder output);
+
+    Set<Integer> getInputChannels();
+
+    boolean isDeterministic();
 }

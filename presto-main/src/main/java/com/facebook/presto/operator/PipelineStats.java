@@ -16,29 +16,40 @@ package com.facebook.presto.operator;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import io.airlift.stats.Distribution.DistributionSnapshot;
 import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
+import org.joda.time.DateTime;
 
+import javax.annotation.Nullable;
 import javax.annotation.concurrent.Immutable;
 
 import java.util.List;
+import java.util.Set;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 @Immutable
 public class PipelineStats
 {
+    private final DateTime firstStartTime;
+    private final DateTime lastStartTime;
+    private final DateTime lastEndTime;
+
     private final boolean inputPipeline;
     private final boolean outputPipeline;
 
     private final int totalDrivers;
     private final int queuedDrivers;
+    private final int queuedPartitionedDrivers;
     private final int runningDrivers;
+    private final int runningPartitionedDrivers;
     private final int completedDrivers;
 
     private final DataSize memoryReservation;
+    private final DataSize systemMemoryReservation;
 
     private final DistributionSnapshot queuedTime;
     private final DistributionSnapshot elapsedTime;
@@ -47,6 +58,8 @@ public class PipelineStats
     private final Duration totalCpuTime;
     private final Duration totalUserTime;
     private final Duration totalBlockedTime;
+    private final boolean fullyBlocked;
+    private final Set<BlockedReason> blockedReasons;
 
     private final DataSize rawInputDataSize;
     private final long rawInputPositions;
@@ -62,15 +75,22 @@ public class PipelineStats
 
     @JsonCreator
     public PipelineStats(
+            @JsonProperty("firstStartTime") DateTime firstStartTime,
+            @JsonProperty("lastStartTime") DateTime lastStartTime,
+            @JsonProperty("lastEndTime") DateTime lastEndTime,
+
             @JsonProperty("inputPipeline") boolean inputPipeline,
             @JsonProperty("outputPipeline") boolean outputPipeline,
 
             @JsonProperty("totalDrivers") int totalDrivers,
             @JsonProperty("queuedDrivers") int queuedDrivers,
+            @JsonProperty("queuedPartitionedDrivers") int queuedPartitionedDrivers,
             @JsonProperty("runningDrivers") int runningDrivers,
+            @JsonProperty("runningPartitionedDrivers") int runningPartitionedDrivers,
             @JsonProperty("completedDrivers") int completedDrivers,
 
             @JsonProperty("memoryReservation") DataSize memoryReservation,
+            @JsonProperty("systemMemoryReservation") DataSize systemMemoryReservation,
 
             @JsonProperty("queuedTime") DistributionSnapshot queuedTime,
             @JsonProperty("elapsedTime") DistributionSnapshot elapsedTime,
@@ -79,6 +99,8 @@ public class PipelineStats
             @JsonProperty("totalCpuTime") Duration totalCpuTime,
             @JsonProperty("totalUserTime") Duration totalUserTime,
             @JsonProperty("totalBlockedTime") Duration totalBlockedTime,
+            @JsonProperty("fullyBlocked") boolean fullyBlocked,
+            @JsonProperty("blockedReasons") Set<BlockedReason> blockedReasons,
 
             @JsonProperty("rawInputDataSize") DataSize rawInputDataSize,
             @JsonProperty("rawInputPositions") long rawInputPositions,
@@ -92,6 +114,10 @@ public class PipelineStats
             @JsonProperty("operatorSummaries") List<OperatorStats> operatorSummaries,
             @JsonProperty("drivers") List<DriverStats> drivers)
     {
+        this.firstStartTime = firstStartTime;
+        this.lastStartTime = lastStartTime;
+        this.lastEndTime = lastEndTime;
+
         this.inputPipeline = inputPipeline;
         this.outputPipeline = outputPipeline;
 
@@ -99,35 +125,63 @@ public class PipelineStats
         this.totalDrivers = totalDrivers;
         checkArgument(queuedDrivers >= 0, "queuedDrivers is negative");
         this.queuedDrivers = queuedDrivers;
+        checkArgument(queuedPartitionedDrivers >= 0, "queuedPartitionedDrivers is negative");
+        this.queuedPartitionedDrivers = queuedPartitionedDrivers;
         checkArgument(runningDrivers >= 0, "runningDrivers is negative");
         this.runningDrivers = runningDrivers;
+        checkArgument(runningPartitionedDrivers >= 0, "runningPartitionedDrivers is negative");
+        this.runningPartitionedDrivers = runningPartitionedDrivers;
         checkArgument(completedDrivers >= 0, "completedDrivers is negative");
         this.completedDrivers = completedDrivers;
 
-        this.memoryReservation = checkNotNull(memoryReservation, "memoryReservation is null");
+        this.memoryReservation = requireNonNull(memoryReservation, "memoryReservation is null");
+        this.systemMemoryReservation = requireNonNull(systemMemoryReservation, "systemMemoryReservation is null");
 
-        this.queuedTime = checkNotNull(queuedTime, "queuedTime is null");
-        this.elapsedTime = checkNotNull(elapsedTime, "elapsedTime is null");
-        this.totalScheduledTime = checkNotNull(totalScheduledTime, "totalScheduledTime is null");
+        this.queuedTime = requireNonNull(queuedTime, "queuedTime is null");
+        this.elapsedTime = requireNonNull(elapsedTime, "elapsedTime is null");
+        this.totalScheduledTime = requireNonNull(totalScheduledTime, "totalScheduledTime is null");
 
-        this.totalCpuTime = checkNotNull(totalCpuTime, "totalCpuTime is null");
-        this.totalUserTime = checkNotNull(totalUserTime, "totalUserTime is null");
-        this.totalBlockedTime = checkNotNull(totalBlockedTime, "totalBlockedTime is null");
+        this.totalCpuTime = requireNonNull(totalCpuTime, "totalCpuTime is null");
+        this.totalUserTime = requireNonNull(totalUserTime, "totalUserTime is null");
+        this.totalBlockedTime = requireNonNull(totalBlockedTime, "totalBlockedTime is null");
+        this.fullyBlocked = fullyBlocked;
+        this.blockedReasons = ImmutableSet.copyOf(requireNonNull(blockedReasons, "blockedReasons is null"));
 
-        this.rawInputDataSize = checkNotNull(rawInputDataSize, "rawInputDataSize is null");
+        this.rawInputDataSize = requireNonNull(rawInputDataSize, "rawInputDataSize is null");
         checkArgument(rawInputPositions >= 0, "rawInputPositions is negative");
         this.rawInputPositions = rawInputPositions;
 
-        this.processedInputDataSize = checkNotNull(processedInputDataSize, "processedInputDataSize is null");
+        this.processedInputDataSize = requireNonNull(processedInputDataSize, "processedInputDataSize is null");
         checkArgument(processedInputPositions >= 0, "processedInputPositions is negative");
         this.processedInputPositions = processedInputPositions;
 
-        this.outputDataSize = checkNotNull(outputDataSize, "outputDataSize is null");
+        this.outputDataSize = requireNonNull(outputDataSize, "outputDataSize is null");
         checkArgument(outputPositions >= 0, "outputPositions is negative");
         this.outputPositions = outputPositions;
 
-        this.operatorSummaries = ImmutableList.copyOf(checkNotNull(operatorSummaries, "operatorSummaries is null"));
-        this.drivers = ImmutableList.copyOf(checkNotNull(drivers, "drivers is null"));
+        this.operatorSummaries = ImmutableList.copyOf(requireNonNull(operatorSummaries, "operatorSummaries is null"));
+        this.drivers = ImmutableList.copyOf(requireNonNull(drivers, "drivers is null"));
+    }
+
+    @Nullable
+    @JsonProperty
+    public DateTime getFirstStartTime()
+    {
+        return firstStartTime;
+    }
+
+    @Nullable
+    @JsonProperty
+    public DateTime getLastStartTime()
+    {
+        return lastStartTime;
+    }
+
+    @Nullable
+    @JsonProperty
+    public DateTime getLastEndTime()
+    {
+        return lastEndTime;
     }
 
     @JsonProperty
@@ -155,9 +209,21 @@ public class PipelineStats
     }
 
     @JsonProperty
+    public int getQueuedPartitionedDrivers()
+    {
+        return queuedPartitionedDrivers;
+    }
+
+    @JsonProperty
     public int getRunningDrivers()
     {
         return runningDrivers;
+    }
+
+    @JsonProperty
+    public int getRunningPartitionedDrivers()
+    {
+        return runningPartitionedDrivers;
     }
 
     @JsonProperty
@@ -170,6 +236,12 @@ public class PipelineStats
     public DataSize getMemoryReservation()
     {
         return memoryReservation;
+    }
+
+    @JsonProperty
+    public DataSize getSystemMemoryReservation()
+    {
+        return systemMemoryReservation;
     }
 
     @JsonProperty
@@ -206,6 +278,18 @@ public class PipelineStats
     public Duration getTotalBlockedTime()
     {
         return totalBlockedTime;
+    }
+
+    @JsonProperty
+    public boolean isFullyBlocked()
+    {
+        return fullyBlocked;
+    }
+
+    @JsonProperty
+    public Set<BlockedReason> getBlockedReasons()
+    {
+        return blockedReasons;
     }
 
     @JsonProperty
@@ -254,5 +338,39 @@ public class PipelineStats
     public List<DriverStats> getDrivers()
     {
         return drivers;
+    }
+
+    public PipelineStats summarize()
+    {
+        return new PipelineStats(
+                firstStartTime,
+                lastStartTime,
+                lastEndTime,
+                inputPipeline,
+                outputPipeline,
+                totalDrivers,
+                queuedDrivers,
+                queuedPartitionedDrivers,
+                runningDrivers,
+                runningPartitionedDrivers,
+                completedDrivers,
+                memoryReservation,
+                systemMemoryReservation,
+                queuedTime,
+                elapsedTime,
+                totalScheduledTime,
+                totalCpuTime,
+                totalUserTime,
+                totalBlockedTime,
+                fullyBlocked,
+                blockedReasons,
+                rawInputDataSize,
+                rawInputPositions,
+                processedInputDataSize,
+                processedInputPositions,
+                outputDataSize,
+                outputPositions,
+                operatorSummaries,
+                ImmutableList.<DriverStats>of());
     }
 }

@@ -15,12 +15,14 @@ package com.facebook.presto.spi.classloader;
 
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorRecordSetProvider;
+import com.facebook.presto.spi.ConnectorSession;
+import com.facebook.presto.spi.ConnectorSplit;
 import com.facebook.presto.spi.RecordSet;
-import com.facebook.presto.spi.Split;
 
 import java.util.List;
 
-@SuppressWarnings("UnusedDeclaration")
+import static java.util.Objects.requireNonNull;
+
 public class ClassLoaderSafeConnectorRecordSetProvider
         implements ConnectorRecordSetProvider
 {
@@ -29,30 +31,22 @@ public class ClassLoaderSafeConnectorRecordSetProvider
 
     public ClassLoaderSafeConnectorRecordSetProvider(ConnectorRecordSetProvider delegate, ClassLoader classLoader)
     {
-        this.delegate = delegate;
-        this.classLoader = classLoader;
+        this.delegate = requireNonNull(delegate, "delegate is null");
+        this.classLoader = requireNonNull(classLoader, "classLoader is null");
     }
 
     @Override
-    public boolean canHandle(Split split)
+    public RecordSet getRecordSet(ConnectorSession session, ConnectorSplit split, List<? extends ColumnHandle> columns)
     {
-        try (ThreadContextClassLoader threadContextClassLoader = new ThreadContextClassLoader(classLoader)) {
-            return delegate.canHandle(split);
-        }
-    }
-
-    @Override
-    public RecordSet getRecordSet(Split split, List<? extends ColumnHandle> columns)
-    {
-        try (ThreadContextClassLoader threadContextClassLoader = new ThreadContextClassLoader(classLoader)) {
-            return new ClassLoaderSafeRecordSet(delegate.getRecordSet(split, columns), classLoader);
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+            return new ClassLoaderSafeRecordSet(delegate.getRecordSet(session, split, columns), classLoader);
         }
     }
 
     @Override
     public String toString()
     {
-        try (ThreadContextClassLoader threadContextClassLoader = new ThreadContextClassLoader(classLoader)) {
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
             return delegate.toString();
         }
     }

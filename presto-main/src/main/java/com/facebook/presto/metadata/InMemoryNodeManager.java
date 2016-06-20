@@ -13,7 +13,9 @@
  */
 package com.facebook.presto.metadata;
 
-import com.google.common.base.Optional;
+import com.facebook.presto.client.NodeVersion;
+import com.facebook.presto.spi.Node;
+import com.facebook.presto.spi.NodeState;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -26,7 +28,7 @@ import java.net.URI;
 import java.util.Set;
 
 public class InMemoryNodeManager
-        implements NodeManager
+        implements InternalNodeManager
 {
     private final Node localNode;
     private final SetMultimap<String, Node> remoteNodes = Multimaps.synchronizedSetMultimap(HashMultimap.<String, Node>create());
@@ -39,7 +41,12 @@ public class InMemoryNodeManager
 
     public InMemoryNodeManager(URI localUri)
     {
-        localNode = new Node("local", localUri, NodeVersion.UNKNOWN);
+        localNode = new PrestoNode("local", localUri, NodeVersion.UNKNOWN);
+    }
+
+    public void addCurrentNodeDatasource(String datasourceName)
+    {
+        addNode(datasourceName, localNode);
     }
 
     public void addNode(String datasourceName, Node... nodes)
@@ -53,6 +60,21 @@ public class InMemoryNodeManager
     }
 
     @Override
+    public Set<Node> getNodes(NodeState state)
+    {
+        switch (state) {
+            case ACTIVE:
+                return getAllNodes().getActiveNodes();
+            case INACTIVE:
+                return getAllNodes().getInactiveNodes();
+            case SHUTTING_DOWN:
+                return getAllNodes().getShuttingDownNodes();
+            default:
+                throw new IllegalArgumentException("Unknown node state " + state);
+        }
+    }
+
+    @Override
     public Set<Node> getActiveDatasourceNodes(String datasourceName)
     {
         return ImmutableSet.copyOf(remoteNodes.get(datasourceName));
@@ -61,13 +83,20 @@ public class InMemoryNodeManager
     @Override
     public AllNodes getAllNodes()
     {
-        return new AllNodes(ImmutableSet.<Node>builder().add(localNode).addAll(remoteNodes.values()).build(), ImmutableSet.<Node>of());
+        return new AllNodes(ImmutableSet.<Node>builder().add(localNode).addAll(remoteNodes.values()).build(), ImmutableSet.<Node>of(), ImmutableSet.<Node>of());
     }
 
     @Override
     public Node getCurrentNode()
     {
         return localNode;
+    }
+
+    @Override
+    public Set<Node> getCoordinators()
+    {
+        // always use localNode as coordinator
+        return ImmutableSet.of(localNode);
     }
 
     @Override

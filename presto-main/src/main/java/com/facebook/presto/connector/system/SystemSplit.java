@@ -13,43 +13,53 @@
  */
 package com.facebook.presto.connector.system;
 
+import com.facebook.presto.spi.ColumnHandle;
+import com.facebook.presto.spi.ConnectorSplit;
 import com.facebook.presto.spi.HostAddress;
-import com.facebook.presto.spi.Split;
+import com.facebook.presto.spi.predicate.TupleDomain;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
-import java.util.Map;
 
+import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 public class SystemSplit
-        implements Split
+        implements ConnectorSplit
 {
+    private final String connectorId;
     private final SystemTableHandle tableHandle;
-    private final Map<String, Object> filters;
     private final List<HostAddress> addresses;
+    private final TupleDomain<ColumnHandle> constraint;
 
-    public SystemSplit(SystemTableHandle tableHandle, Map<String, Object> filters, HostAddress address)
+    public SystemSplit(String connectorId, SystemTableHandle tableHandle, HostAddress address, TupleDomain<ColumnHandle> constraint)
     {
-        this(tableHandle, filters, ImmutableList.of(checkNotNull(address, "address is null")));
+        this(connectorId, tableHandle, ImmutableList.of(requireNonNull(address, "address is null")), constraint);
     }
 
     @JsonCreator
     public SystemSplit(
+            @JsonProperty("connectorId") String connectorId,
             @JsonProperty("tableHandle") SystemTableHandle tableHandle,
-            @JsonProperty("filters") Map<String, Object> filters,
-            @JsonProperty("addresses") List<HostAddress> addresses)
+            @JsonProperty("addresses") List<HostAddress> addresses,
+            @JsonProperty("constraint") TupleDomain<ColumnHandle> constraint)
     {
-        this.tableHandle = checkNotNull(tableHandle, "tableHandle is null");
-        this.filters = checkNotNull(filters, "filters is null");
+        this.connectorId = requireNonNull(connectorId, "connectorId is null");
+        this.tableHandle = requireNonNull(tableHandle, "tableHandle is null");
 
-        checkNotNull(addresses, "hosts is null");
+        requireNonNull(addresses, "hosts is null");
         checkArgument(!addresses.isEmpty(), "hosts is empty");
         this.addresses = ImmutableList.copyOf(addresses);
+        this.constraint = requireNonNull(constraint, "constraint is null");
+    }
+
+    @JsonProperty
+    public String getConnectorId()
+    {
+        return connectorId;
     }
 
     @Override
@@ -72,9 +82,9 @@ public class SystemSplit
     }
 
     @JsonProperty
-    public Map<String, Object> getFilters()
+    public TupleDomain<ColumnHandle> getConstraint()
     {
-        return filters;
+        return constraint;
     }
 
     @Override
@@ -86,9 +96,9 @@ public class SystemSplit
     @Override
     public String toString()
     {
-        return Objects.toStringHelper(this)
+        return toStringHelper(this)
+                .add("connectorId", connectorId)
                 .add("tableHandle", tableHandle)
-                .add("filters", filters)
                 .add("addresses", addresses)
                 .toString();
     }

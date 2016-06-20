@@ -15,34 +15,24 @@ package com.facebook.presto.connector.system;
 
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorHandleResolver;
-import com.facebook.presto.spi.Split;
-import com.facebook.presto.spi.TableHandle;
+import com.facebook.presto.spi.ConnectorSplit;
+import com.facebook.presto.spi.ConnectorTableHandle;
+import com.facebook.presto.spi.ConnectorTableLayoutHandle;
+import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 
 public class SystemHandleResolver
         implements ConnectorHandleResolver
 {
     @Override
-    public boolean canHandle(TableHandle tableHandle)
-    {
-        return tableHandle instanceof SystemTableHandle;
-    }
-
-    @Override
-    public boolean canHandle(ColumnHandle columnHandle)
-    {
-        return columnHandle instanceof SystemColumnHandle;
-    }
-
-    @Override
-    public boolean canHandle(Split split)
-    {
-        return split instanceof SystemSplit;
-    }
-
-    @Override
-    public Class<? extends TableHandle> getTableHandleClass()
+    public Class<? extends ConnectorTableHandle> getTableHandleClass()
     {
         return SystemTableHandle.class;
+    }
+
+    @Override
+    public Class<? extends ConnectorTableLayoutHandle> getTableLayoutHandleClass()
+    {
+        return SystemTableLayoutHandle.class;
     }
 
     @Override
@@ -52,8 +42,14 @@ public class SystemHandleResolver
     }
 
     @Override
-    public Class<? extends Split> getSplitClass()
+    public Class<? extends ConnectorSplit> getSplitClass()
     {
         return SystemSplit.class;
+    }
+
+    @Override
+    public Class<? extends ConnectorTransactionHandle> getTransactionHandleClass()
+    {
+        return SystemTransactionHandle.class;
     }
 }

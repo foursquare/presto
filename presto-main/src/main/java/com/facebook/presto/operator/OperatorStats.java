@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.operator;
 
+import com.facebook.presto.sql.planner.plan.PlanNodeId;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
@@ -22,15 +23,18 @@ import io.airlift.units.Duration;
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.Immutable;
 
+import java.util.Optional;
+
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
 import static io.airlift.units.DataSize.Unit.BYTE;
+import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
 @Immutable
 public class OperatorStats
 {
     private final int operatorId;
+    private final PlanNodeId planNodeId;
     private final String operatorType;
 
     private final long addInputCalls;
@@ -55,12 +59,15 @@ public class OperatorStats
     private final Duration finishUser;
 
     private final DataSize memoryReservation;
+    private final DataSize systemMemoryReservation;
+    private final Optional<BlockedReason> blockedReason;
 
     private final Object info;
 
     @JsonCreator
     public OperatorStats(
             @JsonProperty("operatorId") int operatorId,
+            @JsonProperty("planNodeId") PlanNodeId planNodeId,
             @JsonProperty("operatorType") String operatorType,
 
             @JsonProperty("addInputCalls") long addInputCalls,
@@ -85,37 +92,42 @@ public class OperatorStats
             @JsonProperty("finishUser") Duration finishUser,
 
             @JsonProperty("memoryReservation") DataSize memoryReservation,
+            @JsonProperty("systemMemoryReservation") DataSize systemMemoryReservation,
+            @JsonProperty("blockedReason") Optional<BlockedReason> blockedReason,
 
             @JsonProperty("info") Object info)
     {
         checkArgument(operatorId >= 0, "operatorId is negative");
         this.operatorId = operatorId;
-        this.operatorType = checkNotNull(operatorType, "operatorType is null");
+        this.planNodeId = requireNonNull(planNodeId, "planNodeId is null");
+        this.operatorType = requireNonNull(operatorType, "operatorType is null");
 
         this.addInputCalls = addInputCalls;
-        this.addInputWall = checkNotNull(addInputWall, "addInputWall is null");
-        this.addInputCpu = checkNotNull(addInputCpu, "addInputCpu is null");
-        this.addInputUser = checkNotNull(addInputUser, "addInputUser is null");
-        this.inputDataSize = checkNotNull(inputDataSize, "inputDataSize is null");
+        this.addInputWall = requireNonNull(addInputWall, "addInputWall is null");
+        this.addInputCpu = requireNonNull(addInputCpu, "addInputCpu is null");
+        this.addInputUser = requireNonNull(addInputUser, "addInputUser is null");
+        this.inputDataSize = requireNonNull(inputDataSize, "inputDataSize is null");
         checkArgument(inputPositions >= 0, "inputPositions is negative");
         this.inputPositions = inputPositions;
 
         this.getOutputCalls = getOutputCalls;
-        this.getOutputWall = checkNotNull(getOutputWall, "getOutputWall is null");
-        this.getOutputCpu = checkNotNull(getOutputCpu, "getOutputCpu is null");
-        this.getOutputUser = checkNotNull(getOutputUser, "getOutputUser is null");
-        this.outputDataSize = checkNotNull(outputDataSize, "outputDataSize is null");
+        this.getOutputWall = requireNonNull(getOutputWall, "getOutputWall is null");
+        this.getOutputCpu = requireNonNull(getOutputCpu, "getOutputCpu is null");
+        this.getOutputUser = requireNonNull(getOutputUser, "getOutputUser is null");
+        this.outputDataSize = requireNonNull(outputDataSize, "outputDataSize is null");
         checkArgument(outputPositions >= 0, "outputPositions is negative");
         this.outputPositions = outputPositions;
 
-        this.blockedWall = checkNotNull(blockedWall, "blockedWall is null");
+        this.blockedWall = requireNonNull(blockedWall, "blockedWall is null");
 
         this.finishCalls = finishCalls;
-        this.finishWall = checkNotNull(finishWall, "finishWall is null");
-        this.finishCpu = checkNotNull(finishCpu, "finishCpu is null");
-        this.finishUser = checkNotNull(finishUser, "finishUser is null");
+        this.finishWall = requireNonNull(finishWall, "finishWall is null");
+        this.finishCpu = requireNonNull(finishCpu, "finishCpu is null");
+        this.finishUser = requireNonNull(finishUser, "finishUser is null");
 
-        this.memoryReservation = checkNotNull(memoryReservation, "memoryReservation is null");
+        this.memoryReservation = requireNonNull(memoryReservation, "memoryReservation is null");
+        this.systemMemoryReservation = requireNonNull(systemMemoryReservation, "systemMemoryReservation is null");
+        this.blockedReason = blockedReason;
 
         this.info = info;
     }
@@ -124,6 +136,12 @@ public class OperatorStats
     public int getOperatorId()
     {
         return operatorId;
+    }
+
+    @JsonProperty
+    public PlanNodeId getPlanNodeId()
+    {
+        return planNodeId;
     }
 
     @JsonProperty
@@ -240,6 +258,18 @@ public class OperatorStats
         return memoryReservation;
     }
 
+    @JsonProperty
+    public DataSize getSystemMemoryReservation()
+    {
+        return systemMemoryReservation;
+    }
+
+    @JsonProperty
+    public Optional<BlockedReason> getBlockedReason()
+    {
+        return blockedReason;
+    }
+
     @Nullable
     @JsonProperty
     public Object getInfo()
@@ -276,7 +306,13 @@ public class OperatorStats
         long finishUser = this.finishUser.roundTo(NANOSECONDS);
 
         long memoryReservation = this.memoryReservation.toBytes();
+        long systemMemoryReservation = this.systemMemoryReservation.toBytes();
+        Optional<BlockedReason> blockedReason = this.blockedReason;
 
+        Mergeable<?> base = null;
+        if (info instanceof Mergeable) {
+            base = (Mergeable<?>) info;
+        }
         for (OperatorStats operator : operators) {
             checkArgument(operator.getOperatorId() == operatorId, "Expected operatorId to be %s but was %s", operatorId, operator.getOperatorId());
 
@@ -302,10 +338,20 @@ public class OperatorStats
             blockedWall += operator.getBlockedWall().roundTo(NANOSECONDS);
 
             memoryReservation += operator.getMemoryReservation().toBytes();
+            systemMemoryReservation += operator.getSystemMemoryReservation().toBytes();
+            if (operator.getBlockedReason().isPresent()) {
+                blockedReason = operator.getBlockedReason();
+            }
+
+            Object info = operator.getInfo();
+            if (base != null && info != null && base.getClass() == info.getClass()) {
+                base = mergeInfo(base, info);
+            }
         }
 
         return new OperatorStats(
                 operatorId,
+                planNodeId,
                 operatorType,
 
                 addInputCalls,
@@ -330,8 +376,14 @@ public class OperatorStats
                 new Duration(finishUser, NANOSECONDS).convertToMostSuccinctTimeUnit(),
 
                 new DataSize(memoryReservation, BYTE).convertToMostSuccinctDataSize(),
+                new DataSize(systemMemoryReservation, BYTE).convertToMostSuccinctDataSize(),
+                blockedReason,
 
-                // todo merge operator info?
-                null);
+                base);
+    }
+
+    public static <T extends Mergeable<T>> Mergeable<?> mergeInfo(Object base, Object other)
+    {
+        return ((T) base).mergeWith(((T) other));
     }
 }

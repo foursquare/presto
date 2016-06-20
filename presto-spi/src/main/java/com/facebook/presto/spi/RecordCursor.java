@@ -13,6 +13,9 @@
  */
 package com.facebook.presto.spi;
 
+import com.facebook.presto.spi.type.Type;
+import io.airlift.slice.Slice;
+
 import java.io.Closeable;
 
 public interface RecordCursor
@@ -22,7 +25,9 @@ public interface RecordCursor
 
     long getCompletedBytes();
 
-    ColumnType getType(int field);
+    long getReadTimeNanos();
+
+    Type getType(int field);
 
     boolean advanceNextPosition();
 
@@ -32,9 +37,17 @@ public interface RecordCursor
 
     double getDouble(int field);
 
-    byte[] getString(int field);
+    Slice getSlice(int field);
+
+    Object getObject(int field);
 
     boolean isNull(int field);
+
+    default long getSystemMemoryUsage()
+    {
+        // TODO: implement this method in subclasses and remove this default implementation
+        return 0;
+    }
 
     @Override
     void close();

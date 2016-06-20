@@ -13,59 +13,36 @@
  */
 package com.facebook.presto.sql.tree;
 
-import com.google.common.base.Preconditions;
-import org.joda.time.format.DateTimeFormatter;
-import org.joda.time.format.DateTimeFormatterBuilder;
+import java.util.Objects;
+import java.util.Optional;
 
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static java.util.Objects.requireNonNull;
 
 public class TimeLiteral
         extends Literal
 {
-    public static final DateTimeFormatter DATE_TIME_FORMATTER;
-
-    static {
-        DATE_TIME_FORMATTER = new DateTimeFormatterBuilder()
-                .appendHourOfDay(2)
-                .appendLiteral(':')
-                .appendMinuteOfHour(2)
-                .appendOptional(new DateTimeFormatterBuilder()
-                        .appendLiteral(':')
-                        .appendSecondOfMinute(2)
-                        .appendOptional(new DateTimeFormatterBuilder()
-                                .appendLiteral('.')
-                                .appendMillisOfSecond(1)
-                                .toParser())
-                        .toParser())
-                .appendOptional(new DateTimeFormatterBuilder()
-                        .appendTimeZoneOffset("Z", true, 1, 2)
-                        .toParser())
-                .appendOptional(new DateTimeFormatterBuilder()
-                        .appendLiteral(' ')
-                        .appendTimeZoneId()
-                        .toParser())
-                .toFormatter()
-                .withZoneUTC();
-    }
-
     private final String value;
-    private final long unixTime;
 
     public TimeLiteral(String value)
     {
-        Preconditions.checkNotNull(value, "value is null");
+        this(Optional.empty(), value);
+    }
+
+    public TimeLiteral(NodeLocation location, String value)
+    {
+        this(Optional.of(location), value);
+    }
+
+    private TimeLiteral(Optional<NodeLocation> location, String value)
+    {
+        super(location);
+        requireNonNull(value, "value is null");
         this.value = value;
-        unixTime = MILLISECONDS.toSeconds(DATE_TIME_FORMATTER.parseMillis(value));
     }
 
     public String getValue()
     {
         return value;
-    }
-
-    public long getUnixTime()
-    {
-        return unixTime;
     }
 
     @Override
@@ -85,12 +62,7 @@ public class TimeLiteral
         }
 
         TimeLiteral that = (TimeLiteral) o;
-
-        if (!value.equals(that.value)) {
-            return false;
-        }
-
-        return true;
+        return Objects.equals(value, that.value);
     }
 
     @Override

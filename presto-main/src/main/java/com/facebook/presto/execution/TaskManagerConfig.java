@@ -14,9 +14,13 @@
 package com.facebook.presto.execution;
 
 import io.airlift.configuration.Config;
+import io.airlift.configuration.ConfigDescription;
+import io.airlift.configuration.DefunctConfig;
+import io.airlift.configuration.LegacyConfig;
 import io.airlift.units.DataSize;
 import io.airlift.units.DataSize.Unit;
 import io.airlift.units.Duration;
+import io.airlift.units.MaxDuration;
 import io.airlift.units.MinDuration;
 
 import javax.validation.constraints.Min;
@@ -24,17 +28,78 @@ import javax.validation.constraints.NotNull;
 
 import java.util.concurrent.TimeUnit;
 
+@DefunctConfig({"experimental.big-query-max-task-memory", "task.max-memory", "task.http-notification-threads", "task.info-refresh-max-wait"})
 public class TaskManagerConfig
 {
+    private boolean verboseStats;
     private boolean taskCpuTimerEnabled = true;
-    private DataSize maxTaskMemoryUsage = new DataSize(256, Unit.MEGABYTE);
+    private DataSize maxPartialAggregationMemoryUsage = new DataSize(16, Unit.MEGABYTE);
     private DataSize operatorPreAllocatedMemory = new DataSize(16, Unit.MEGABYTE);
-    private int maxShardProcessorThreads = Runtime.getRuntime().availableProcessors() * 4;
+    private DataSize maxIndexMemoryUsage = new DataSize(64, Unit.MEGABYTE);
+    private boolean shareIndexLoading;
+    private int maxWorkerThreads = Runtime.getRuntime().availableProcessors() * 4;
+    private Integer minDrivers;
+    private Integer initialSplitsPerNode;
+    private Duration splitConcurrencyAdjustmentInterval = new Duration(100, TimeUnit.MILLISECONDS);
 
     private DataSize sinkMaxBufferSize = new DataSize(32, Unit.MEGABYTE);
+    private DataSize maxPagePartitioningBufferSize = new DataSize(32, Unit.MEGABYTE);
 
-    private Duration clientTimeout = new Duration(5, TimeUnit.MINUTES);
+    private Duration clientTimeout = new Duration(2, TimeUnit.MINUTES);
     private Duration infoMaxAge = new Duration(15, TimeUnit.MINUTES);
+
+    private Duration statusRefreshMaxWait = new Duration(1, TimeUnit.SECONDS);
+    private Duration infoUpdateInterval = new Duration(200, TimeUnit.MILLISECONDS);
+
+    private int writerCount = 1;
+    private int taskConcurrency = 1;
+    private int httpResponseThreads = 100;
+    private int httpTimeoutThreads = 3;
+
+    private int taskNotificationThreads = 5;
+
+    @MinDuration("1ms")
+    @MaxDuration("10s")
+    @NotNull
+    public Duration getStatusRefreshMaxWait()
+    {
+        return statusRefreshMaxWait;
+    }
+
+    @Config("task.status-refresh-max-wait")
+    public TaskManagerConfig setStatusRefreshMaxWait(Duration statusRefreshMaxWait)
+    {
+        this.statusRefreshMaxWait = statusRefreshMaxWait;
+        return this;
+    }
+
+    @MinDuration("1ms")
+    @MaxDuration("10s")
+    @NotNull
+    public Duration getInfoUpdateInterval()
+    {
+        return infoUpdateInterval;
+    }
+
+    @Config("task.info-update-interval")
+    @ConfigDescription("Interval between updating task data")
+    public TaskManagerConfig setInfoUpdateInterval(Duration infoUpdateInterval)
+    {
+        this.infoUpdateInterval = infoUpdateInterval;
+        return this;
+    }
+
+    public boolean isVerboseStats()
+    {
+        return verboseStats;
+    }
+
+    @Config("task.verbose-stats")
+    public TaskManagerConfig setVerboseStats(boolean verboseStats)
+    {
+        this.verboseStats = verboseStats;
+        return this;
+    }
 
     public boolean isTaskCpuTimerEnabled()
     {
@@ -49,15 +114,15 @@ public class TaskManagerConfig
     }
 
     @NotNull
-    public DataSize getMaxTaskMemoryUsage()
+    public DataSize getMaxPartialAggregationMemoryUsage()
     {
-        return maxTaskMemoryUsage;
+        return maxPartialAggregationMemoryUsage;
     }
 
-    @Config("task.max-memory")
-    public TaskManagerConfig setMaxTaskMemoryUsage(DataSize maxTaskMemoryUsage)
+    @Config("task.max-partial-aggregation-memory")
+    public TaskManagerConfig setMaxPartialAggregationMemoryUsage(DataSize maxPartialAggregationMemoryUsage)
     {
-        this.maxTaskMemoryUsage = maxTaskMemoryUsage;
+        this.maxPartialAggregationMemoryUsage = maxPartialAggregationMemoryUsage;
         return this;
     }
 
@@ -74,16 +139,88 @@ public class TaskManagerConfig
         return this;
     }
 
-    @Min(1)
-    public int getMaxShardProcessorThreads()
+    @NotNull
+    public DataSize getMaxIndexMemoryUsage()
     {
-        return maxShardProcessorThreads;
+        return maxIndexMemoryUsage;
     }
 
-    @Config("task.shard.max-threads")
-    public TaskManagerConfig setMaxShardProcessorThreads(int maxShardProcessorThreads)
+    @Config("task.max-index-memory")
+    public TaskManagerConfig setMaxIndexMemoryUsage(DataSize maxIndexMemoryUsage)
     {
-        this.maxShardProcessorThreads = maxShardProcessorThreads;
+        this.maxIndexMemoryUsage = maxIndexMemoryUsage;
+        return this;
+    }
+
+    @NotNull
+    public boolean isShareIndexLoading()
+    {
+        return shareIndexLoading;
+    }
+
+    @Config("task.share-index-loading")
+    public TaskManagerConfig setShareIndexLoading(boolean shareIndexLoading)
+    {
+        this.shareIndexLoading = shareIndexLoading;
+        return this;
+    }
+
+    @Min(1)
+    public int getMaxWorkerThreads()
+    {
+        return maxWorkerThreads;
+    }
+
+    @LegacyConfig("task.shard.max-threads")
+    @Config("task.max-worker-threads")
+    public TaskManagerConfig setMaxWorkerThreads(int maxWorkerThreads)
+    {
+        this.maxWorkerThreads = maxWorkerThreads;
+        return this;
+    }
+
+    @Min(1)
+    public int getInitialSplitsPerNode()
+    {
+        if (initialSplitsPerNode == null) {
+            return maxWorkerThreads;
+        }
+        return initialSplitsPerNode;
+    }
+
+    @Config("task.initial-splits-per-node")
+    public TaskManagerConfig setInitialSplitsPerNode(int initialSplitsPerNode)
+    {
+        this.initialSplitsPerNode = initialSplitsPerNode;
+        return this;
+    }
+
+    @MinDuration("1ms")
+    public Duration getSplitConcurrencyAdjustmentInterval()
+    {
+        return splitConcurrencyAdjustmentInterval;
+    }
+
+    @Config("task.split-concurrency-adjustment-interval")
+    public TaskManagerConfig setSplitConcurrencyAdjustmentInterval(Duration splitConcurrencyAdjustmentInterval)
+    {
+        this.splitConcurrencyAdjustmentInterval = splitConcurrencyAdjustmentInterval;
+        return this;
+    }
+
+    @Min(1)
+    public int getMinDrivers()
+    {
+        if (minDrivers == null) {
+            return 2 * maxWorkerThreads;
+        }
+        return minDrivers;
+    }
+
+    @Config("task.min-drivers")
+    public TaskManagerConfig setMinDrivers(int minDrivers)
+    {
+        this.minDrivers = minDrivers;
         return this;
     }
 
@@ -97,6 +234,19 @@ public class TaskManagerConfig
     public TaskManagerConfig setSinkMaxBufferSize(DataSize sinkMaxBufferSize)
     {
         this.sinkMaxBufferSize = sinkMaxBufferSize;
+        return this;
+    }
+
+    @NotNull
+    public DataSize getMaxPagePartitioningBufferSize()
+    {
+        return maxPagePartitioningBufferSize;
+    }
+
+    @Config("driver.max-page-partitioning-buffer-size")
+    public TaskManagerConfig setMaxPagePartitioningBufferSize(DataSize size)
+    {
+        this.maxPagePartitioningBufferSize = size;
         return this;
     }
 
@@ -124,6 +274,74 @@ public class TaskManagerConfig
     public TaskManagerConfig setInfoMaxAge(Duration infoMaxAge)
     {
         this.infoMaxAge = infoMaxAge;
+        return this;
+    }
+
+    @Min(1)
+    public int getWriterCount()
+    {
+        return writerCount;
+    }
+
+    @Config("task.writer-count")
+    @ConfigDescription("Number of writers per task")
+    public TaskManagerConfig setWriterCount(int writerCount)
+    {
+        this.writerCount = writerCount;
+        return this;
+    }
+
+    @Min(1)
+    public int getTaskConcurrency()
+    {
+        return taskConcurrency;
+    }
+
+    @Config("task.concurrency")
+    @ConfigDescription("Default number of local parallel jobs per worker")
+    public TaskManagerConfig setTaskConcurrency(int taskConcurrency)
+    {
+        this.taskConcurrency = taskConcurrency;
+        return this;
+    }
+
+    @Min(1)
+    public int getHttpResponseThreads()
+    {
+        return httpResponseThreads;
+    }
+
+    @Config("task.http-response-threads")
+    public TaskManagerConfig setHttpResponseThreads(int httpResponseThreads)
+    {
+        this.httpResponseThreads = httpResponseThreads;
+        return this;
+    }
+
+    @Min(1)
+    public int getHttpTimeoutThreads()
+    {
+        return httpTimeoutThreads;
+    }
+
+    @Config("task.http-timeout-threads")
+    public TaskManagerConfig setHttpTimeoutThreads(int httpTimeoutThreads)
+    {
+        this.httpTimeoutThreads = httpTimeoutThreads;
+        return this;
+    }
+
+    @Min(1)
+    public int getTaskNotificationThreads()
+    {
+        return taskNotificationThreads;
+    }
+
+    @Config("task.task-notification-threads")
+    @ConfigDescription("Number of threads used for internal task event notifications")
+    public TaskManagerConfig setTaskNotificationThreads(int taskNotificationThreads)
+    {
+        this.taskNotificationThreads = taskNotificationThreads;
         return this;
     }
 }

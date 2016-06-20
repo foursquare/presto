@@ -13,7 +13,8 @@
  */
 package com.facebook.presto.sql.tree;
 
-import com.google.common.collect.Iterables;
+import java.util.Objects;
+import java.util.Optional;
 
 public class QualifiedNameReference
         extends Expression
@@ -22,6 +23,17 @@ public class QualifiedNameReference
 
     public QualifiedNameReference(QualifiedName name)
     {
+        this(Optional.empty(), name);
+    }
+
+    public QualifiedNameReference(NodeLocation location, QualifiedName name)
+    {
+        this(Optional.of(location), name);
+    }
+
+    private QualifiedNameReference(Optional<NodeLocation> location, QualifiedName name)
+    {
+        super(location);
         this.name = name;
     }
 
@@ -32,7 +44,7 @@ public class QualifiedNameReference
 
     public QualifiedName getSuffix()
     {
-        return QualifiedName.of(Iterables.getLast(name.getParts()));
+        return QualifiedName.of(name.getSuffix());
     }
 
     @Override
@@ -52,12 +64,7 @@ public class QualifiedNameReference
         }
 
         QualifiedNameReference that = (QualifiedNameReference) o;
-
-        if (!name.equals(that.name)) {
-            return false;
-        }
-
-        return true;
+        return Objects.equals(name, that.name);
     }
 
     @Override

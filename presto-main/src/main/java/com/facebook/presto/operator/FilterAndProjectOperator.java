@@ -13,48 +13,148 @@
  */
 package com.facebook.presto.operator;
 
-import com.facebook.presto.block.Block;
-import com.facebook.presto.block.BlockCursor;
-import com.facebook.presto.tuple.TupleInfo;
+import com.facebook.presto.spi.Page;
+import com.facebook.presto.spi.PageBuilder;
+import com.facebook.presto.spi.type.Type;
+import com.facebook.presto.sql.planner.plan.PlanNodeId;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.function.Supplier;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static com.facebook.presto.SystemSessionProperties.isColumnarProcessingDictionaryEnabled;
+import static com.facebook.presto.SystemSessionProperties.isColumnarProcessingEnabled;
 import static com.google.common.base.Preconditions.checkState;
+import static java.util.Objects.requireNonNull;
 
 public class FilterAndProjectOperator
-        extends AbstractFilterAndProjectOperator
+        implements Operator
 {
+    private final OperatorContext operatorContext;
+    private final List<Type> types;
+
+    private final PageBuilder pageBuilder;
+    private final PageProcessor processor;
+    private final boolean columnarProcessingEnabled;
+    private final boolean columnarProcessingDictionaryEnabled;
+    private Page currentPage;
+    private int currentPosition;
+    private boolean finishing;
+
+    public FilterAndProjectOperator(OperatorContext operatorContext, Iterable<? extends Type> types, PageProcessor processor)
+    {
+        this.processor = requireNonNull(processor, "processor is null");
+        this.operatorContext = requireNonNull(operatorContext, "operatorContext is null");
+        this.types = ImmutableList.copyOf(requireNonNull(types, "types is null"));
+        this.columnarProcessingEnabled = isColumnarProcessingEnabled(operatorContext.getSession());
+        this.columnarProcessingDictionaryEnabled = isColumnarProcessingDictionaryEnabled(operatorContext.getSession());
+        this.pageBuilder = new PageBuilder(getTypes());
+    }
+
+    @Override
+    public OperatorContext getOperatorContext()
+    {
+        return operatorContext;
+    }
+
+    @Override
+    public final List<Type> getTypes()
+    {
+        return types;
+    }
+
+    @Override
+    public final void finish()
+    {
+        finishing = true;
+    }
+
+    @Override
+    public final boolean isFinished()
+    {
+        return finishing && pageBuilder.isEmpty() && currentPage == null;
+    }
+
+    @Override
+    public final boolean needsInput()
+    {
+        return !finishing && !pageBuilder.isFull() && currentPage == null;
+    }
+
+    @Override
+    public final void addInput(Page page)
+    {
+        checkState(!finishing, "Operator is already finishing");
+        requireNonNull(page, "page is null");
+        checkState(!pageBuilder.isFull(), "Page buffer is full");
+
+        currentPage = page;
+        currentPosition = 0;
+    }
+
+    @Override
+    public final Page getOutput()
+    {
+        if (!pageBuilder.isFull() && currentPage != null) {
+            if (columnarProcessingDictionaryEnabled) {
+                Page page = processor.processColumnarDictionary(operatorContext.getSession().toConnectorSession(), currentPage, getTypes());
+                currentPage = null;
+                currentPosition = 0;
+                return page;
+            }
+            else if (columnarProcessingEnabled) {
+                Page page = processor.processColumnar(operatorContext.getSession().toConnectorSession(), currentPage, getTypes());
+                currentPage = null;
+                currentPosition = 0;
+                return page;
+            }
+            else {
+                currentPosition = processor.process(operatorContext.getSession().toConnectorSession(), currentPage, currentPosition, currentPage.getPositionCount(), pageBuilder);
+                if (currentPosition == currentPage.getPositionCount()) {
+                    currentPage = null;
+                    currentPosition = 0;
+                }
+            }
+        }
+
+        if (!finishing && !pageBuilder.isFull() || pageBuilder.isEmpty()) {
+            return null;
+        }
+
+        Page page = pageBuilder.build();
+        pageBuilder.reset();
+        return page;
+    }
+
     public static class FilterAndProjectOperatorFactory
             implements OperatorFactory
     {
         private final int operatorId;
-        private final FilterFunction filterFunction;
-        private final List<ProjectionFunction> projections;
-        private final List<TupleInfo> tupleInfos;
+        private final PlanNodeId planNodeId;
+        private final Supplier<PageProcessor> processor;
+        private final List<Type> types;
         private boolean closed;
 
-        public FilterAndProjectOperatorFactory(int operatorId, FilterFunction filterFunction, Iterable<? extends ProjectionFunction> projections)
+        public FilterAndProjectOperatorFactory(int operatorId, PlanNodeId planNodeId, Supplier<PageProcessor> processor, List<Type> types)
         {
             this.operatorId = operatorId;
-            this.filterFunction = checkNotNull(filterFunction, "filterFunction is null");
-            this.projections = ImmutableList.copyOf(projections);
-            this.tupleInfos = toTupleInfos(checkNotNull(projections, "projections is null"));
+            this.planNodeId = requireNonNull(planNodeId, "planNodeId is null");
+            this.processor = processor;
+            this.types = types;
         }
 
         @Override
-        public List<TupleInfo> getTupleInfos()
+        public List<Type> getTypes()
         {
-            return tupleInfos;
+            return types;
         }
 
         @Override
         public Operator createOperator(DriverContext driverContext)
         {
             checkState(!closed, "Factory is already closed");
-            OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, FilterAndProjectOperator.class.getSimpleName());
-            return new FilterAndProjectOperator(operatorContext, filterFunction, projections);
+            OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, FilterAndProjectOperator.class.getSimpleName());
+            return new FilterAndProjectOperator(operatorContext, types, processor.get());
         }
 
         @Override
@@ -62,52 +162,11 @@ public class FilterAndProjectOperator
         {
             closed = true;
         }
-    }
 
-    private final FilterFunction filterFunction;
-    private final List<ProjectionFunction> projections;
-
-    public FilterAndProjectOperator(OperatorContext operatorContext, FilterFunction filterFunction, Iterable<? extends ProjectionFunction> projections)
-    {
-        super(operatorContext, toTupleInfos(checkNotNull(projections, "projections is null")));
-        this.filterFunction = checkNotNull(filterFunction, "filterFunction is null");
-        this.projections = ImmutableList.copyOf(projections);
-    }
-
-    protected void filterAndProjectRowOriented(Block[] blocks, PageBuilder pageBuilder)
-    {
-        int rows = blocks[0].getPositionCount();
-
-        BlockCursor[] cursors = new BlockCursor[blocks.length];
-        for (int i = 0; i < blocks.length; i++) {
-            cursors[i] = blocks[i].cursor();
+        @Override
+        public OperatorFactory duplicate()
+        {
+            return new FilterAndProjectOperatorFactory(operatorId, planNodeId, processor, types);
         }
-
-        for (int position = 0; position < rows; position++) {
-            for (BlockCursor cursor : cursors) {
-                checkState(cursor.advanceNextPosition());
-            }
-
-            if (filterFunction.filter(cursors)) {
-                pageBuilder.declarePosition();
-                for (int i = 0; i < projections.size(); i++) {
-                    // todo: if the projection function increases the size of the data significantly, this could cause the servers to OOM
-                    projections.get(i).project(cursors, pageBuilder.getBlockBuilder(i));
-                }
-            }
-        }
-
-        for (BlockCursor cursor : cursors) {
-            checkState(!cursor.advanceNextPosition());
-        }
-    }
-
-    private static List<TupleInfo> toTupleInfos(Iterable<? extends ProjectionFunction> projections)
-    {
-        ImmutableList.Builder<TupleInfo> tupleInfos = ImmutableList.builder();
-        for (ProjectionFunction projection : projections) {
-            tupleInfos.add(projection.getTupleInfo());
-        }
-        return tupleInfos.build();
     }
 }

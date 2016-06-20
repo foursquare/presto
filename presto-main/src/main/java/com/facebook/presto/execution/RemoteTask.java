@@ -13,35 +13,44 @@
  */
 package com.facebook.presto.execution;
 
+import com.facebook.presto.OutputBuffers;
 import com.facebook.presto.execution.StateMachine.StateChangeListener;
-import com.facebook.presto.spi.Split;
+import com.facebook.presto.metadata.Split;
 import com.facebook.presto.sql.planner.plan.PlanNodeId;
 import com.google.common.collect.Multimap;
-import io.airlift.units.Duration;
 
-import java.net.URI;
-import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 
 public interface RemoteTask
 {
+    TaskId getTaskId();
+
+    String getNodeId();
+
+    // this is necessary to differentiate two tasks on the same node
+    int getPartition();
+
     TaskInfo getTaskInfo();
+
+    TaskStatus getTaskStatus();
 
     void start();
 
-    void addSplit(Split split);
+    void addSplits(Multimap<PlanNodeId, Split> splits);
 
-    void noMoreSplits();
+    void noMoreSplits(PlanNodeId sourceId);
 
-    void addExchangeLocations(Multimap<PlanNodeId, URI> exchangeLocations, boolean noMore);
+    void setOutputBuffers(OutputBuffers outputBuffers);
 
-    void addOutputBuffers(Set<String> outputBuffers, boolean noMore);
+    void addStateChangeListener(StateChangeListener<TaskStatus> stateChangeListener);
 
-    void addStateChangeListener(StateChangeListener<TaskInfo> stateChangeListener);
+    CompletableFuture<TaskStatus> getStateChange(TaskStatus taskStatus);
 
     void cancel();
 
-    int getQueuedSplits();
+    void abort();
 
-    Duration waitForTaskToFinish(Duration maxWait)
-            throws InterruptedException;
+    int getPartitionedSplitCount();
+
+    int getQueuedPartitionedSplitCount();
 }

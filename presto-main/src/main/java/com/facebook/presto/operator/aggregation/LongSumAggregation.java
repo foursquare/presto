@@ -13,104 +13,31 @@
  */
 package com.facebook.presto.operator.aggregation;
 
-import com.facebook.presto.block.Block;
-import com.facebook.presto.block.BlockBuilder;
-import com.facebook.presto.block.BlockCursor;
-import com.facebook.presto.tuple.TupleInfo;
-import io.airlift.slice.Slice;
+import com.facebook.presto.operator.aggregation.state.NullableLongState;
+import com.facebook.presto.spi.block.BlockBuilder;
+import com.facebook.presto.spi.type.BigintType;
+import com.facebook.presto.spi.type.StandardTypes;
+import com.facebook.presto.type.BigintOperators;
+import com.facebook.presto.type.SqlType;
 
-import static com.facebook.presto.tuple.TupleInfo.SINGLE_LONG;
-
-public class LongSumAggregation
-        implements FixedWidthAggregationFunction
+@AggregationFunction("sum")
+public final class LongSumAggregation
 {
-    public static final LongSumAggregation LONG_SUM = new LongSumAggregation();
+    public static final InternalAggregationFunction LONG_SUM = new AggregationCompiler().generateAggregationFunction(LongSumAggregation.class);
 
-    @Override
-    public int getFixedSize()
+    private LongSumAggregation() {}
+
+    @InputFunction
+    @IntermediateInputFunction
+    public static void sum(NullableLongState state, @SqlType(StandardTypes.BIGINT) long value)
     {
-        return SINGLE_LONG.getFixedSize();
+        state.setNull(false);
+        state.setLong(BigintOperators.add(state.getLong(), value));
     }
 
-    @Override
-    public TupleInfo getFinalTupleInfo()
+    @OutputFunction(StandardTypes.BIGINT)
+    public static void output(NullableLongState state, BlockBuilder out)
     {
-        return SINGLE_LONG;
-    }
-
-    @Override
-    public TupleInfo getIntermediateTupleInfo()
-    {
-        return SINGLE_LONG;
-    }
-
-    @Override
-    public void initialize(Slice valueSlice, int valueOffset)
-    {
-        // mark value null
-        SINGLE_LONG.setNull(valueSlice, valueOffset, 0);
-    }
-
-    @Override
-    public void addInput(BlockCursor cursor, int field, Slice valueSlice, int valueOffset)
-    {
-        if (cursor.isNull(field)) {
-            return;
-        }
-
-        // mark value not null
-        SINGLE_LONG.setNotNull(valueSlice, valueOffset, 0);
-
-        // update current value
-        long currentValue = SINGLE_LONG.getLong(valueSlice, valueOffset, 0);
-        long newValue = cursor.getLong(field);
-        SINGLE_LONG.setLong(valueSlice, valueOffset, 0, currentValue + newValue);
-    }
-
-    @Override
-    public void addInput(int positionCount, Block block, int field, Slice valueSlice, int valueOffset)
-    {
-        // initialize with current value
-        boolean hasNonNull = !SINGLE_LONG.isNull(valueSlice, valueOffset);
-        long sum = SINGLE_LONG.getLong(valueSlice, valueOffset, 0);
-
-        // process block
-        BlockCursor cursor = block.cursor();
-        while (cursor.advanceNextPosition()) {
-            if (!cursor.isNull(field)) {
-                hasNonNull = true;
-                sum += cursor.getLong(field);
-            }
-        }
-
-        // write new value
-        if (hasNonNull) {
-            SINGLE_LONG.setNotNull(valueSlice, valueOffset, 0);
-            SINGLE_LONG.setLong(valueSlice, valueOffset, 0, sum);
-        }
-    }
-
-    @Override
-    public void addIntermediate(BlockCursor cursor, int field, Slice valueSlice, int valueOffset)
-    {
-        addInput(cursor, field, valueSlice, valueOffset);
-    }
-
-    @Override
-    public void evaluateIntermediate(Slice valueSlice, int valueOffset, BlockBuilder output)
-    {
-        evaluateFinal(valueSlice, valueOffset, output);
-    }
-
-    @Override
-    public void evaluateFinal(Slice valueSlice, int valueOffset, BlockBuilder output)
-    {
-        if (!SINGLE_LONG.isNull(valueSlice, valueOffset, 0)) {
-            long currentValue = SINGLE_LONG.getLong(valueSlice, valueOffset, 0);
-            output.append(currentValue);
-        }
-        else {
-            output.appendNull();
-        }
+        NullableLongState.write(BigintType.BIGINT, state, out);
     }
 }

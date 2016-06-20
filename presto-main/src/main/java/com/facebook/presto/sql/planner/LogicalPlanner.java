@@ -13,43 +13,59 @@
  */
 package com.facebook.presto.sql.planner;
 
-import com.facebook.presto.importer.PeriodicImportJob;
-import com.facebook.presto.importer.PeriodicImportManager;
+import com.facebook.presto.Session;
 import com.facebook.presto.metadata.Metadata;
-import com.facebook.presto.metadata.MetadataUtil;
-import com.facebook.presto.metadata.NativeTableHandle;
-import com.facebook.presto.metadata.QualifiedTableName;
+import com.facebook.presto.metadata.NewTableLayout;
+import com.facebook.presto.metadata.QualifiedObjectName;
 import com.facebook.presto.metadata.TableMetadata;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ColumnMetadata;
 import com.facebook.presto.spi.ConnectorTableMetadata;
-import com.facebook.presto.spi.TableHandle;
+import com.facebook.presto.spi.PrestoException;
+import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.sql.analyzer.Analysis;
 import com.facebook.presto.sql.analyzer.Field;
-import com.facebook.presto.sql.analyzer.Session;
-import com.facebook.presto.sql.analyzer.TupleDescriptor;
-import com.facebook.presto.sql.analyzer.Type;
+import com.facebook.presto.sql.analyzer.RelationType;
+import com.facebook.presto.sql.planner.PartitionFunctionBinding.PartitionFunctionArgumentBinding;
 import com.facebook.presto.sql.planner.optimizations.PlanOptimizer;
-import com.facebook.presto.sql.planner.plan.MaterializedViewWriterNode;
+import com.facebook.presto.sql.planner.plan.DeleteNode;
+import com.facebook.presto.sql.planner.plan.ExplainAnalyzeNode;
+import com.facebook.presto.sql.planner.plan.LimitNode;
 import com.facebook.presto.sql.planner.plan.OutputNode;
 import com.facebook.presto.sql.planner.plan.PlanNode;
-import com.facebook.presto.sql.planner.plan.TableScanNode;
-import com.facebook.presto.sql.tree.QueryBody;
-import com.facebook.presto.sql.tree.QuerySpecification;
-import com.facebook.presto.sql.tree.Relation;
-import com.facebook.presto.sql.tree.Table;
-import com.facebook.presto.storage.StorageManager;
-import com.google.common.base.Optional;
-import com.google.common.base.Preconditions;
+import com.facebook.presto.sql.planner.plan.ProjectNode;
+import com.facebook.presto.sql.planner.plan.TableFinishNode;
+import com.facebook.presto.sql.planner.plan.TableWriterNode;
+import com.facebook.presto.sql.planner.plan.ValuesNode;
+import com.facebook.presto.sql.tree.Cast;
+import com.facebook.presto.sql.tree.CreateTableAsSelect;
+import com.facebook.presto.sql.tree.Delete;
+import com.facebook.presto.sql.tree.Explain;
+import com.facebook.presto.sql.tree.Expression;
+import com.facebook.presto.sql.tree.Insert;
+import com.facebook.presto.sql.tree.NullLiteral;
+import com.facebook.presto.sql.tree.Query;
+import com.facebook.presto.sql.tree.Statement;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Iterables;
+import com.google.common.collect.ImmutableSet;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
-import static com.facebook.presto.sql.planner.plan.TableScanNode.GeneratedPartitions;
+import static com.facebook.presto.spi.StandardErrorCode.NOT_SUPPORTED;
+import static com.facebook.presto.spi.type.BigintType.BIGINT;
+import static com.facebook.presto.spi.type.VarbinaryType.VARBINARY;
+import static com.facebook.presto.sql.planner.plan.TableWriterNode.CreateName;
+import static com.facebook.presto.sql.planner.plan.TableWriterNode.InsertReference;
+import static com.facebook.presto.sql.planner.plan.TableWriterNode.WriterTarget;
+import static com.facebook.presto.type.TypeRegistry.isTypeOnlyCoercion;
+import static com.facebook.presto.util.ImmutableCollectors.toImmutableList;
 import static com.google.common.base.Preconditions.checkState;
+import static java.lang.String.format;
+import static java.util.Objects.requireNonNull;
 
 public class LogicalPlanner
 {
@@ -58,52 +74,34 @@ public class LogicalPlanner
     private final Session session;
     private final List<PlanOptimizer> planOptimizers;
     private final SymbolAllocator symbolAllocator = new SymbolAllocator();
-
-    // for materialized views
     private final Metadata metadata;
-    private final PeriodicImportManager periodicImportManager;
-    private final StorageManager storageManager;
 
     public LogicalPlanner(Session session,
             List<PlanOptimizer> planOptimizers,
             PlanNodeIdAllocator idAllocator,
-            Metadata metadata,
-            PeriodicImportManager periodicImportManager,
-            StorageManager storageManager)
+            Metadata metadata)
     {
-        Preconditions.checkNotNull(session, "session is null");
-        Preconditions.checkNotNull(planOptimizers, "planOptimizers is null");
-        Preconditions.checkNotNull(idAllocator, "idAllocator is null");
-        Preconditions.checkNotNull(metadata, "metadata is null");
-        Preconditions.checkNotNull(periodicImportManager, "periodicImportManager is null");
-        Preconditions.checkNotNull(storageManager, "storageManager is null");
+        requireNonNull(session, "session is null");
+        requireNonNull(planOptimizers, "planOptimizers is null");
+        requireNonNull(idAllocator, "idAllocator is null");
+        requireNonNull(metadata, "metadata is null");
 
         this.session = session;
         this.planOptimizers = planOptimizers;
         this.idAllocator = idAllocator;
         this.metadata = metadata;
-        this.periodicImportManager = periodicImportManager;
-        this.storageManager = storageManager;
     }
 
     public Plan plan(Analysis analysis)
     {
-        RelationPlan plan;
-        if (analysis.getMaterializedViewDestination().isPresent()) {
-            plan = createMaterializedViewWriterPlan(analysis);
-        }
-        else {
-            RelationPlanner planner = new RelationPlanner(analysis, symbolAllocator, idAllocator, metadata, session);
-            plan = planner.process(analysis.getQuery(), null);
-        }
-
-        PlanNode root = createOutputPlan(plan, analysis);
+        PlanNode root = planStatement(analysis, analysis.getStatement());
 
         // make sure we produce a valid plan. This is mainly to catch programming errors
         PlanSanityChecker.validate(root);
 
         for (PlanOptimizer optimizer : planOptimizers) {
             root = optimizer.optimize(root, session, symbolAllocator.getTypes(), symbolAllocator, idAllocator);
+            requireNonNull(root, format("%s returned a null plan", optimizer.getClass().getName()));
         }
 
         // make sure we produce a valid plan after optimizations run. This is mainly to catch programming errors
@@ -112,130 +110,249 @@ public class LogicalPlanner
         return new Plan(root, symbolAllocator);
     }
 
-    private RelationPlan createMaterializedViewWriterPlan(Analysis analysis)
+    private PlanNode planStatement(Analysis analysis, Statement statement)
     {
-        QualifiedTableName destination = analysis.getMaterializedViewDestination().get();
-
-        TableHandle targetTable;
-        List<ColumnHandle> targetColumnHandles;
-
-        RelationPlan plan;
-        if (analysis.isDoRefresh()) {
-            // TODO: some of this should probably move to the analyzer, which should be able to compute the tuple descriptor for the source table from metadata
-            targetTable = metadata.getTableHandle(destination).get();
-            QualifiedTableName sourceTable = storageManager.getTableSource((NativeTableHandle) targetTable);
-            TableHandle sourceTableHandle = metadata.getTableHandle(sourceTable).get();
-            TableMetadata sourceTableMetadata = metadata.getTableMetadata(sourceTableHandle);
-            Map<String, ColumnHandle> sourceTableColumns = metadata.getColumnHandles(sourceTableHandle);
-            Map<String, ColumnHandle> targetTableColumns = metadata.getColumnHandles(targetTable);
-
-            ImmutableList.Builder<Symbol> outputSymbolsBuilder = ImmutableList.builder();
-            ImmutableMap.Builder<Symbol, ColumnHandle> inputColumnsBuilder = ImmutableMap.builder();
-            ImmutableList.Builder<Field> fields = ImmutableList.builder();
-            ImmutableList.Builder<ColumnHandle> columnHandleBuilder = ImmutableList.builder();
-
-            for (ColumnMetadata column : sourceTableMetadata.getColumns()) {
-                Field field = Field.newQualified(sourceTable.asQualifiedName(), Optional.of(column.getName()), Type.fromRaw(column.getType()));
-                Symbol symbol = symbolAllocator.newSymbol(field);
-
-                inputColumnsBuilder.put(symbol, sourceTableColumns.get(column.getName()));
-                ColumnHandle targetColumnHandle = targetTableColumns.get(column.getName());
-                fields.add(field);
-                columnHandleBuilder.add(targetColumnHandle);
-                outputSymbolsBuilder.add(symbol);
+        if (statement instanceof CreateTableAsSelect) {
+            checkState(analysis.getCreateTableDestination().isPresent(), "Table destination is missing");
+            if (analysis.isCreateTableAsSelectNoOp()) {
+                List<Expression> emptyRow = ImmutableList.of();
+                PlanNode source = new ValuesNode(idAllocator.getNextId(), ImmutableList.of(), ImmutableList.of(emptyRow));
+                return new OutputNode(idAllocator.getNextId(), source, ImmutableList.of(), ImmutableList.of());
             }
-
-            ImmutableList<Symbol> outputSymbols = outputSymbolsBuilder.build();
-            plan = new RelationPlan(new TableScanNode(idAllocator.getNextId(), sourceTableHandle, outputSymbols, inputColumnsBuilder.build(), Optional.<GeneratedPartitions>absent()), new TupleDescriptor(fields.build()), outputSymbols);
-
-            targetColumnHandles = columnHandleBuilder.build();
+            else {
+                return createOutputPlan(createTableCreationPlan(analysis, ((CreateTableAsSelect) statement).getQuery()), analysis);
+            }
+        }
+        else if (statement instanceof Insert) {
+            checkState(analysis.getInsert().isPresent(), "Insert handle is missing");
+            return createOutputPlan(createInsertPlan(analysis, (Insert) statement), analysis);
+        }
+        else if (statement instanceof Delete) {
+            return createOutputPlan(createDeletePlan(analysis, (Delete) statement), analysis);
+        }
+        else if (statement instanceof Query) {
+            return createOutputPlan(createRelationPlan(analysis, (Query) statement), analysis);
+        }
+        else if (statement instanceof Explain && ((Explain) statement).isAnalyze()) {
+            return createOutputPlan(createExplainAnalyzePlan(analysis, (Explain) statement), analysis);
         }
         else {
-            RelationPlanner planner = new RelationPlanner(analysis, symbolAllocator, idAllocator, metadata, session);
-            plan = planner.process(analysis.getQuery(), null);
+            throw new PrestoException(NOT_SUPPORTED, "Unsupported statement type " + statement.getClass().getSimpleName());
+        }
+    }
 
-            // TODO: create table and periodic import in pre-execution step, not here
+    private RelationPlan createExplainAnalyzePlan(Analysis analysis, Explain statement)
+    {
+        RelationType descriptor = analysis.getOutputDescriptor(statement);
+        PlanNode root = planStatement(analysis, statement.getStatement());
+        Symbol outputSymbol = symbolAllocator.newSymbol(descriptor.getFieldByIndex(0));
+        root = new ExplainAnalyzeNode(idAllocator.getNextId(), root, outputSymbol);
+        return new RelationPlan(root, descriptor, ImmutableList.of(outputSymbol), Optional.empty());
+    }
 
-            // Create the destination table
-            ImmutableList.Builder<ColumnMetadata> columns = ImmutableList.builder();
-            for (int i = 0; i < plan.getDescriptor().getFields().size(); i++) {
-                Field field = plan.getDescriptor().getFields().get(i);
-                String name = field.getName().or("_field" + i);
-                ColumnMetadata columnMetadata = new ColumnMetadata(name, field.getType().getColumnType(), i, false);
-                columns.add(columnMetadata);
-            }
+    private RelationPlan createTableCreationPlan(Analysis analysis, Query query)
+    {
+        QualifiedObjectName destination = analysis.getCreateTableDestination().get();
 
-            TableMetadata tableMetadata = createTableMetadata(destination, columns.build());
-            targetTable = metadata.createTable(destination.getCatalogName(), tableMetadata);
+        RelationPlan plan = createRelationPlan(analysis, query);
 
-            // get the column handles for the destination table
-            Map<String, ColumnHandle> columnHandleIndex = metadata.getColumnHandles(targetTable);
-            ImmutableList.Builder<ColumnHandle> columnHandleBuilder = ImmutableList.builder();
-            for (ColumnMetadata column : tableMetadata.getColumns()) {
-                columnHandleBuilder.add(columnHandleIndex.get(column.getName()));
-            }
-            targetColumnHandles = columnHandleBuilder.build();
-
-            // find source table (TODO: do this in analyzer)
-            QueryBody queryBody = analysis.getQuery().getQueryBody();
-            checkState(queryBody instanceof QuerySpecification, "Query is not a simple select statement");
-            List<Relation> relations = ((QuerySpecification) queryBody).getFrom();
-            checkState(relations.size() == 1, "Query has more than one source table");
-            Relation relation = Iterables.getOnlyElement(relations);
-            checkState(relation instanceof Table, "FROM clause is not a simple table name");
-            QualifiedTableName sourceTable = MetadataUtil.createQualifiedTableName(session, ((Table) relation).getName());
-
-            // create source table and optional import information
-            storageManager.insertTableSource(((NativeTableHandle) targetTable), sourceTable);
-
-            // if a refresh is present, create a periodic import for this table
-            if (analysis.getRefreshInterval().isPresent()) {
-                PeriodicImportJob job = PeriodicImportJob.createJob(sourceTable, destination, analysis.getRefreshInterval().get());
-                periodicImportManager.insertJob(job);
-            }
+        TableMetadata tableMetadata = createTableMetadata(destination, getOutputTableColumns(plan), analysis.getCreateTableProperties(), plan.getSampleWeight().isPresent());
+        if (plan.getSampleWeight().isPresent() && !metadata.canCreateSampledTables(session, destination.getCatalogName())) {
+            throw new PrestoException(NOT_SUPPORTED, "Cannot write sampled data to a store that doesn't support sampling");
         }
 
-        // compute input symbol <-> column mappings
-        ImmutableMap.Builder<Symbol, ColumnHandle> mappings = ImmutableMap.builder();
+        Optional<NewTableLayout> newTableLayout = metadata.getNewTableLayout(session, destination.getCatalogName(), tableMetadata);
 
-        for (int i = 0; i < targetColumnHandles.size(); i++) {
-            ColumnHandle column = targetColumnHandles.get(i);
-            Symbol symbol = plan.getSymbol(i);
-            mappings.put(symbol, column);
+        return createTableWriterPlan(
+                analysis,
+                plan,
+                new CreateName(destination.getCatalogName(), tableMetadata, newTableLayout),
+                tableMetadata.getVisibleColumnNames(),
+                newTableLayout);
+    }
+
+    private RelationPlan createInsertPlan(Analysis analysis, Insert insertStatement)
+    {
+        Analysis.Insert insert = analysis.getInsert().get();
+
+        TableMetadata tableMetadata = metadata.getTableMetadata(session, insert.getTarget());
+
+        List<String> visibleTableColumnNames = tableMetadata.getVisibleColumnNames();
+        List<ColumnMetadata> visibleTableColumns = tableMetadata.getVisibleColumns();
+
+        RelationPlan plan = createRelationPlan(analysis, insertStatement.getQuery());
+
+        Map<String, ColumnHandle> columns = metadata.getColumnHandles(session, insert.getTarget());
+        ImmutableMap.Builder<Symbol, Expression> assignments = ImmutableMap.builder();
+        for (ColumnMetadata column : tableMetadata.getVisibleColumns()) {
+            Symbol output = symbolAllocator.newSymbol(column.getName(), column.getType());
+            int index = insert.getColumns().indexOf(columns.get(column.getName()));
+            if (index < 0) {
+                assignments.put(output, new NullLiteral());
+            }
+            else {
+                Symbol input = plan.getSymbol(index);
+                Type tableType = column.getType();
+                Type queryType = symbolAllocator.getTypes().get(input);
+
+                if (queryType.equals(tableType) || isTypeOnlyCoercion(queryType, tableType)) {
+                    assignments.put(output, input.toQualifiedNameReference());
+                }
+                else {
+                    Expression cast = new Cast(input.toQualifiedNameReference(), tableType.getTypeSignature().toString());
+                    assignments.put(output, cast);
+                }
+            }
+        }
+        ProjectNode projectNode = new ProjectNode(idAllocator.getNextId(), plan.getRoot(), assignments.build());
+
+        RelationType tupleDescriptor = new RelationType(visibleTableColumns.stream()
+                .map(column -> Field.newUnqualified(column.getName(), column.getType()))
+                .collect(toImmutableList()));
+
+        plan = new RelationPlan(
+                projectNode,
+                tupleDescriptor,
+                projectNode.getOutputSymbols(),
+                plan.getSampleWeight());
+
+        Optional<NewTableLayout> newTableLayout = metadata.getInsertLayout(session, insert.getTarget());
+
+        return createTableWriterPlan(
+                analysis,
+                plan,
+                new InsertReference(insert.getTarget()),
+                visibleTableColumnNames,
+                newTableLayout);
+    }
+
+    private RelationPlan createTableWriterPlan(
+            Analysis analysis,
+            RelationPlan plan,
+            WriterTarget target,
+            List<String> columnNames,
+            Optional<NewTableLayout> writeTableLayout)
+    {
+        List<Symbol> writerOutputs = ImmutableList.of(
+                symbolAllocator.newSymbol("partialrows", BIGINT),
+                symbolAllocator.newSymbol("fragment", VARBINARY));
+
+        PlanNode source = plan.getRoot();
+
+        if (!analysis.isCreateTableAsSelectWithData()) {
+            source = new LimitNode(idAllocator.getNextId(), source, 0L, false);
         }
 
-        // create writer node
-        Symbol output = symbolAllocator.newSymbol("imported_rows", Type.BIGINT);
+        // todo this should be checked in analysis
+        writeTableLayout.ifPresent(layout -> {
+            if (!ImmutableSet.copyOf(columnNames).containsAll(layout.getPartitionColumns())) {
+                throw new PrestoException(NOT_SUPPORTED, "INSERT must write all distribution columns: " + layout.getPartitionColumns());
+            }
+        });
 
-        MaterializedViewWriterNode writerNode = new MaterializedViewWriterNode(idAllocator.getNextId(),
-                plan.getRoot(),
-                targetTable,
-                mappings.build(),
-                output);
+        List<Symbol> symbols = plan.getOutputSymbols();
 
-        return new RelationPlan(writerNode, analysis.getOutputDescriptor(), ImmutableList.of(output));
+        Optional<PartitionFunctionBinding> partitionFunctionBinding = Optional.empty();
+        if (writeTableLayout.isPresent()) {
+            List<PartitionFunctionArgumentBinding> partitionFunctionArguments = new ArrayList<>();
+            writeTableLayout.get().getPartitionColumns().stream()
+                    .mapToInt(columnNames::indexOf)
+                    .mapToObj(symbols::get)
+                    .map(PartitionFunctionArgumentBinding::new)
+                    .forEach(partitionFunctionArguments::add);
+            plan.getSampleWeight()
+                    .map(PartitionFunctionArgumentBinding::new)
+                    .ifPresent(partitionFunctionArguments::add);
+
+            List<Symbol> outputLayout = new ArrayList<>(symbols);
+            plan.getSampleWeight()
+                    .ifPresent(outputLayout::add);
+
+            partitionFunctionBinding = Optional.of(new PartitionFunctionBinding(
+                    writeTableLayout.get().getPartitioning(),
+                    outputLayout,
+                    partitionFunctionArguments));
+        }
+
+        PlanNode writerNode = new TableWriterNode(
+                idAllocator.getNextId(),
+                source,
+                target,
+                symbols,
+                columnNames,
+                writerOutputs,
+                plan.getSampleWeight(),
+                partitionFunctionBinding);
+
+        List<Symbol> outputs = ImmutableList.of(symbolAllocator.newSymbol("rows", BIGINT));
+        TableFinishNode commitNode = new TableFinishNode(
+                idAllocator.getNextId(),
+                writerNode,
+                target,
+                outputs);
+
+        return new RelationPlan(commitNode, analysis.getOutputDescriptor(), outputs, Optional.empty());
+    }
+
+    private RelationPlan createDeletePlan(Analysis analysis, Delete node)
+    {
+        QueryPlanner planner = new QueryPlanner(analysis, symbolAllocator, idAllocator, metadata, session, Optional.empty());
+        DeleteNode deleteNode = planner.plan(node);
+
+        List<Symbol> outputs = ImmutableList.of(symbolAllocator.newSymbol("rows", BIGINT));
+        TableFinishNode commitNode = new TableFinishNode(idAllocator.getNextId(), deleteNode, deleteNode.getTarget(), outputs);
+
+        return new RelationPlan(commitNode, analysis.getOutputDescriptor(), commitNode.getOutputSymbols(), Optional.empty());
     }
 
     private PlanNode createOutputPlan(RelationPlan plan, Analysis analysis)
     {
-        ImmutableList.Builder<String> names = ImmutableList.builder();
         ImmutableList.Builder<Symbol> outputs = ImmutableList.builder();
+        ImmutableList.Builder<String> names = ImmutableList.builder();
 
-        for (int i = 0; i < analysis.getOutputDescriptor().getFields().size(); i++) {
-            Field field = analysis.getOutputDescriptor().getFields().get(i);
-            String name = field.getName().or("_col" + i);
-
+        int columnNumber = 0;
+        RelationType outputDescriptor = analysis.getOutputDescriptor();
+        for (Field field : outputDescriptor.getVisibleFields()) {
+            String name = field.getName().orElse("_col" + columnNumber);
             names.add(name);
-            outputs.add(plan.getSymbol(i));
+
+            int fieldIndex = outputDescriptor.indexOf(field);
+            Symbol symbol = plan.getSymbol(fieldIndex);
+            outputs.add(symbol);
+
+            columnNumber++;
         }
 
         return new OutputNode(idAllocator.getNextId(), plan.getRoot(), names.build(), outputs.build());
     }
 
-    private static TableMetadata createTableMetadata(QualifiedTableName destination, List<ColumnMetadata> columns)
+    private RelationPlan createRelationPlan(Analysis analysis, Query query)
     {
-        ConnectorTableMetadata metadata = new ConnectorTableMetadata(destination.asSchemaTableName(), columns);
+        return new RelationPlanner(analysis, symbolAllocator, idAllocator, metadata, session)
+                .process(query, null);
+    }
+
+    private TableMetadata createTableMetadata(QualifiedObjectName table, List<ColumnMetadata> columns, Map<String, Expression> propertyExpressions, boolean sampled)
+    {
+        String owner = session.getUser();
+
+        Map<String, Object> properties = metadata.getTablePropertyManager().getTableProperties(
+                table.getCatalogName(),
+                propertyExpressions,
+                session,
+                metadata);
+
+        ConnectorTableMetadata metadata = new ConnectorTableMetadata(table.asSchemaTableName(), columns, properties, owner, sampled);
         // TODO: first argument should actually be connectorId
-        return new TableMetadata(destination.getCatalogName(), metadata);
+        return new TableMetadata(table.getCatalogName(), metadata);
+    }
+
+    private static List<ColumnMetadata> getOutputTableColumns(RelationPlan plan)
+    {
+        ImmutableList.Builder<ColumnMetadata> columns = ImmutableList.builder();
+        for (Field field : plan.getDescriptor().getVisibleFields()) {
+            columns.add(new ColumnMetadata(field.getName().get(), field.getType()));
+        }
+        return columns.build();
     }
 }

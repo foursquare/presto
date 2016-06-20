@@ -13,17 +13,41 @@
  */
 package com.facebook.presto.spi;
 
+import com.facebook.presto.spi.connector.ConnectorPartitioningHandle;
+import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
+
 public interface ConnectorHandleResolver
 {
-    boolean canHandle(TableHandle tableHandle);
+    Class<? extends ConnectorTableHandle> getTableHandleClass();
 
-    boolean canHandle(ColumnHandle columnHandle);
-
-    boolean canHandle(Split split);
-
-    Class<? extends TableHandle> getTableHandleClass();
+    Class<? extends ConnectorTableLayoutHandle> getTableLayoutHandleClass();
 
     Class<? extends ColumnHandle> getColumnHandleClass();
 
-    Class<? extends Split> getSplitClass();
+    Class<? extends ConnectorSplit> getSplitClass();
+
+    default Class<? extends ConnectorIndexHandle> getIndexHandleClass()
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    default Class<? extends ConnectorOutputTableHandle> getOutputTableHandleClass()
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    default Class<? extends ConnectorInsertTableHandle> getInsertTableHandleClass()
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    default Class<? extends ConnectorPartitioningHandle> getPartitioningHandleClass()
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    default Class<? extends ConnectorTransactionHandle> getTransactionHandleClass()
+    {
+        throw new UnsupportedOperationException();
+    }
 }

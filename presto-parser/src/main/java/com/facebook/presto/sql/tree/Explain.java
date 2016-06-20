@@ -13,22 +13,37 @@
  */
 package com.facebook.presto.sql.tree;
 
-import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.MoreObjects.toStringHelper;
+import static java.util.Objects.requireNonNull;
 
 public class Explain
         extends Statement
 {
-    private final Query query;
+    private final Statement statement;
+    private final boolean analyze;
     private final List<ExplainOption> options;
 
-    public Explain(Query query, List<ExplainOption> options)
+    public Explain(Statement statement, boolean analyze, List<ExplainOption> options)
     {
-        this.query = checkNotNull(query, "query is null");
+        this(Optional.empty(), analyze, statement, options);
+    }
+
+    public Explain(NodeLocation location, boolean analyze, Statement statement, List<ExplainOption> options)
+    {
+        this(Optional.of(location), analyze, statement, options);
+    }
+
+    private Explain(Optional<NodeLocation> location, boolean analyze, Statement statement, List<ExplainOption> options)
+    {
+        super(location);
+        this.statement = requireNonNull(statement, "statement is null");
+        this.analyze = analyze;
         if (options == null) {
             this.options = ImmutableList.of();
         }
@@ -37,9 +52,14 @@ public class Explain
         }
     }
 
-    public Query getQuery()
+    public Statement getStatement()
     {
-        return query;
+        return statement;
+    }
+
+    public boolean isAnalyze()
+    {
+        return analyze;
     }
 
     public List<ExplainOption> getOptions()
@@ -56,7 +76,7 @@ public class Explain
     @Override
     public int hashCode()
     {
-        return Objects.hashCode(query, options);
+        return Objects.hash(statement, options, analyze);
     }
 
     @Override
@@ -69,16 +89,18 @@ public class Explain
             return false;
         }
         Explain o = (Explain) obj;
-        return Objects.equal(query, o.query) &&
-                Objects.equal(options, o.options);
+        return Objects.equals(statement, o.statement) &&
+                Objects.equals(options, o.options) &&
+                Objects.equals(analyze, o.analyze);
     }
 
     @Override
     public String toString()
     {
-        return Objects.toStringHelper(this)
-                .add("query", query)
+        return toStringHelper(this)
+                .add("statement", statement)
                 .add("options", options)
+                .add("analyze", analyze)
                 .toString();
     }
 }

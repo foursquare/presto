@@ -13,8 +13,10 @@
  */
 package com.facebook.presto.sql.tree;
 
-import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
+import java.util.Objects;
+import java.util.Optional;
+
+import static java.util.Objects.requireNonNull;
 
 public class ComparisonExpression
         extends Expression
@@ -40,6 +42,48 @@ public class ComparisonExpression
         {
             return value;
         }
+
+        public Type flip()
+        {
+            switch (this) {
+                case EQUAL:
+                    return EQUAL;
+                case NOT_EQUAL:
+                    return NOT_EQUAL;
+                case LESS_THAN:
+                    return GREATER_THAN;
+                case LESS_THAN_OR_EQUAL:
+                    return GREATER_THAN_OR_EQUAL;
+                case GREATER_THAN:
+                    return LESS_THAN;
+                case GREATER_THAN_OR_EQUAL:
+                    return LESS_THAN_OR_EQUAL;
+                case IS_DISTINCT_FROM:
+                    return IS_DISTINCT_FROM;
+                default:
+                    throw new IllegalArgumentException("Unsupported comparison: " + this);
+            }
+        }
+
+        public Type negate()
+        {
+            switch (this) {
+                case EQUAL:
+                    return NOT_EQUAL;
+                case NOT_EQUAL:
+                    return EQUAL;
+                case LESS_THAN:
+                    return GREATER_THAN_OR_EQUAL;
+                case LESS_THAN_OR_EQUAL:
+                    return GREATER_THAN;
+                case GREATER_THAN:
+                    return LESS_THAN_OR_EQUAL;
+                case GREATER_THAN_OR_EQUAL:
+                    return LESS_THAN;
+                default:
+                    throw new IllegalArgumentException("Unsupported comparison: " + this);
+            }
+        }
     }
 
     private final Type type;
@@ -48,9 +92,20 @@ public class ComparisonExpression
 
     public ComparisonExpression(Type type, Expression left, Expression right)
     {
-        Preconditions.checkNotNull(type, "type is null");
-        Preconditions.checkNotNull(left, "left is null");
-        Preconditions.checkNotNull(right, "right is null");
+        this(Optional.empty(), type, left, right);
+    }
+
+    public ComparisonExpression(NodeLocation location, Type type, Expression left, Expression right)
+    {
+        this(Optional.of(location), type, left, right);
+    }
+
+    private ComparisonExpression(Optional<NodeLocation> location, Type type, Expression left, Expression right)
+    {
+        super(location);
+        requireNonNull(type, "type is null");
+        requireNonNull(left, "left is null");
+        requireNonNull(right, "right is null");
 
         this.type = type;
         this.left = left;
@@ -89,41 +144,14 @@ public class ComparisonExpression
         }
 
         ComparisonExpression that = (ComparisonExpression) o;
-
-        if (!left.equals(that.left)) {
-            return false;
-        }
-        if (!right.equals(that.right)) {
-            return false;
-        }
-        if (type != that.type) {
-            return false;
-        }
-
-        return true;
+        return (type == that.type) &&
+                Objects.equals(left, that.left) &&
+                Objects.equals(right, that.right);
     }
 
     @Override
     public int hashCode()
     {
-        int result = type.hashCode();
-        result = 31 * result + left.hashCode();
-        result = 31 * result + right.hashCode();
-        return result;
-    }
-
-    public static Predicate<ComparisonExpression> matchesPattern(final Type type, final Class<?> left, final Class<?> right)
-    {
-        return new Predicate<ComparisonExpression>()
-        {
-            @Override
-            public boolean apply(ComparisonExpression expression)
-            {
-                return expression.getType() == type &&
-                        left.isAssignableFrom(expression.getLeft().getClass()) &&
-                        right.isAssignableFrom(expression.getRight().getClass());
-            }
-        };
+        return Objects.hash(type, left, right);
     }
 }
-

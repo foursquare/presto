@@ -13,7 +13,7 @@
  */
 package com.facebook.presto.execution;
 
-import com.facebook.presto.metadata.Node;
+import com.facebook.presto.spi.Node;
 
 import java.net.URI;
 
@@ -26,4 +26,6 @@ public interface LocationFactory
     URI createLocalTaskLocation(TaskId taskId);
 
     URI createTaskLocation(Node node, TaskId taskId);
+
+    URI createMemoryInfoLocation(Node node);
 }

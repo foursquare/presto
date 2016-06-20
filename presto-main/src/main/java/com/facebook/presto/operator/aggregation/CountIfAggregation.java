@@ -13,100 +13,35 @@
  */
 package com.facebook.presto.operator.aggregation;
 
-import com.facebook.presto.block.Block;
-import com.facebook.presto.block.BlockBuilder;
-import com.facebook.presto.block.BlockCursor;
-import com.facebook.presto.tuple.TupleInfo;
-import io.airlift.slice.Slice;
+import com.facebook.presto.operator.aggregation.state.LongState;
+import com.facebook.presto.spi.block.BlockBuilder;
+import com.facebook.presto.spi.type.StandardTypes;
+import com.facebook.presto.type.SqlType;
 
-import static com.facebook.presto.tuple.TupleInfo.SINGLE_LONG;
+import static com.facebook.presto.spi.type.BigintType.BIGINT;
 
-public class CountIfAggregation
-        implements FixedWidthAggregationFunction
+@AggregationFunction("count_if")
+public final class CountIfAggregation
 {
-    public static final CountIfAggregation COUNT_IF = new CountIfAggregation();
+    private CountIfAggregation() {}
 
-    @Override
-    public int getFixedSize()
+    @InputFunction
+    public static void input(LongState state, @SqlType(StandardTypes.BOOLEAN) boolean value)
     {
-        return SINGLE_LONG.getFixedSize();
-    }
-
-    @Override
-    public TupleInfo getFinalTupleInfo()
-    {
-        return SINGLE_LONG;
-    }
-
-    @Override
-    public TupleInfo getIntermediateTupleInfo()
-    {
-        return SINGLE_LONG;
-    }
-
-    @Override
-    public void initialize(Slice valueSlice, int valueOffset)
-    {
-        SINGLE_LONG.setLong(valueSlice, valueOffset, 0, 0);
-    }
-
-    @Override
-    public void addInput(BlockCursor cursor, int field, Slice valueSlice, int valueOffset)
-    {
-        if (cursor.isNull(field)) {
-            return;
-        }
-
-        // if true increment value
-        if (cursor.getBoolean(field)) {
-            long currentValue = SINGLE_LONG.getLong(valueSlice, valueOffset, 0);
-            SINGLE_LONG.setLong(valueSlice, valueOffset, 0, currentValue + 1);
+        if (value) {
+            state.setLong(state.getLong() + 1);
         }
     }
 
-    @Override
-    public void addInput(int positionCount, Block block, int field, Slice valueSlice, int valueOffset)
+    @CombineFunction
+    public static void combine(LongState state, LongState otherState)
     {
-        // initialize with current value
-        long count = SINGLE_LONG.getLong(valueSlice, valueOffset, 0);
-
-        // process block
-        BlockCursor cursor = block.cursor();
-        while (cursor.advanceNextPosition()) {
-            if (!cursor.isNull(field)) {
-                if (cursor.getBoolean(field)) {
-                    count++;
-                }
-            }
-        }
-
-        // write new value
-        SINGLE_LONG.setLong(valueSlice, valueOffset, 0, count);
+        state.setLong(state.getLong() + otherState.getLong());
     }
 
-    @Override
-    public void addIntermediate(BlockCursor cursor, int field, Slice valueSlice, int valueOffset)
+    @OutputFunction(StandardTypes.BIGINT)
+    public static void output(LongState state, BlockBuilder out)
     {
-        if (cursor.isNull(field)) {
-            return;
-        }
-
-        // update current value
-        long currentValue = SINGLE_LONG.getLong(valueSlice, valueOffset, 0);
-        long newValue = cursor.getLong(field);
-        SINGLE_LONG.setLong(valueSlice, valueOffset, 0, currentValue + newValue);
-    }
-
-    @Override
-    public void evaluateIntermediate(Slice valueSlice, int valueOffset, BlockBuilder output)
-    {
-        evaluateFinal(valueSlice, valueOffset, output);
-    }
-
-    @Override
-    public void evaluateFinal(Slice valueSlice, int valueOffset, BlockBuilder output)
-    {
-        long currentValue = SINGLE_LONG.getLong(valueSlice, valueOffset, 0);
-        output.append(currentValue);
+        BIGINT.writeLong(out, state.getLong());
     }
 }

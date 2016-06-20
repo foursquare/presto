@@ -13,7 +13,7 @@
  */
 package com.facebook.presto.operator;
 
-import com.facebook.presto.tuple.TupleInfo;
+import com.facebook.presto.spi.type.Type;
 
 import java.io.Closeable;
 import java.util.List;
@@ -21,10 +21,12 @@ import java.util.List;
 public interface OperatorFactory
         extends Closeable
 {
-    List<TupleInfo> getTupleInfos();
+    List<Type> getTypes();
 
     Operator createOperator(DriverContext driverContext);
 
     @Override
     void close();
+
+    OperatorFactory duplicate();
 }

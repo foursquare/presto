@@ -14,17 +14,23 @@
 package com.facebook.presto.operator;
 
 import com.facebook.presto.spi.RecordCursor;
-import com.facebook.presto.tuple.TupleReadable;
+import com.facebook.presto.spi.block.Block;
 
-public class FilterFunctions
+import java.util.Set;
+
+import static java.util.Collections.emptySet;
+
+public final class FilterFunctions
 {
     public static final FilterFunction TRUE_FUNCTION = new TrueFilterFunction();
+
+    private FilterFunctions() {}
 
     private static class TrueFilterFunction
             implements FilterFunction
     {
         @Override
-        public boolean filter(TupleReadable... cursors)
+        public boolean filter(int position, Block... blocks)
         {
             return true;
         }
@@ -33,6 +39,12 @@ public class FilterFunctions
         public boolean filter(RecordCursor cursor)
         {
             return true;
+        }
+
+        @Override
+        public Set<Integer> getInputChannels()
+        {
+            return emptySet();
         }
 
         @Override

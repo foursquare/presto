@@ -13,16 +13,37 @@
  */
 package com.facebook.presto.sql.tree;
 
-import com.google.common.base.Objects;
-import com.google.common.base.Preconditions;
+import java.util.Objects;
+import java.util.Optional;
+
+import static com.google.common.base.MoreObjects.toStringHelper;
+import static com.google.common.base.Preconditions.checkArgument;
+import static java.util.Objects.requireNonNull;
 
 public class Join
         extends Relation
 {
-    public Join(Type type, Relation left, Relation right, JoinCriteria criteria)
+    public Join(Type type, Relation left, Relation right, Optional<JoinCriteria> criteria)
     {
-        Preconditions.checkNotNull(left, "left is null");
-        Preconditions.checkNotNull(right, "right is null");
+        this(Optional.empty(), type, left, right, criteria);
+    }
+
+    public Join(NodeLocation location, Type type, Relation left, Relation right, Optional<JoinCriteria> criteria)
+    {
+        this(Optional.of(location), type, left, right, criteria);
+    }
+
+    private Join(Optional<NodeLocation> location, Type type, Relation left, Relation right, Optional<JoinCriteria> criteria)
+    {
+        super(location);
+        requireNonNull(left, "left is null");
+        requireNonNull(right, "right is null");
+        if ((type == Type.CROSS) || (type == Type.IMPLICIT)) {
+            checkArgument(!criteria.isPresent(), "%s join cannot have join criteria", type);
+        }
+        else {
+            checkArgument(criteria.isPresent(), "No join criteria specified");
+        }
 
         this.type = type;
         this.left = left;
@@ -32,13 +53,13 @@ public class Join
 
     public enum Type
     {
-        CROSS, INNER, LEFT, RIGHT, FULL
+        CROSS, INNER, LEFT, RIGHT, FULL, IMPLICIT
     }
 
     private final Type type;
     private final Relation left;
     private final Relation right;
-    private final JoinCriteria criteria;
+    private final Optional<JoinCriteria> criteria;
 
     public Type getType()
     {
@@ -55,7 +76,7 @@ public class Join
         return right;
     }
 
-    public JoinCriteria getCriteria()
+    public Optional<JoinCriteria> getCriteria()
     {
         return criteria;
     }
@@ -69,7 +90,7 @@ public class Join
     @Override
     public String toString()
     {
-        return Objects.toStringHelper(this)
+        return toStringHelper(this)
                 .add("type", type)
                 .add("left", left)
                 .add("right", right)
@@ -84,35 +105,19 @@ public class Join
         if (this == o) {
             return true;
         }
-        if (o == null || getClass() != o.getClass()) {
+        if ((o == null) || (getClass() != o.getClass())) {
             return false;
         }
-
         Join join = (Join) o;
-
-        if (criteria != null ? !criteria.equals(join.criteria) : join.criteria != null) {
-            return false;
-        }
-        if (!left.equals(join.left)) {
-            return false;
-        }
-        if (!right.equals(join.right)) {
-            return false;
-        }
-        if (type != join.type) {
-            return false;
-        }
-
-        return true;
+        return (type == join.type) &&
+                Objects.equals(left, join.left) &&
+                Objects.equals(right, join.right) &&
+                Objects.equals(criteria, join.criteria);
     }
 
     @Override
     public int hashCode()
     {
-        int result = type != null ? type.hashCode() : 0;
-        result = 31 * result + left.hashCode();
-        result = 31 * result + right.hashCode();
-        result = 31 * result + (criteria != null ? criteria.hashCode() : 0);
-        return result;
+        return Objects.hash(type, left, right, criteria);
     }
 }

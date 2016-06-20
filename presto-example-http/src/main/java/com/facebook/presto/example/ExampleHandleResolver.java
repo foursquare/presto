@@ -15,44 +15,22 @@ package com.facebook.presto.example;
 
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorHandleResolver;
-import com.facebook.presto.spi.Split;
-import com.facebook.presto.spi.TableHandle;
-
-import javax.inject.Inject;
-
-import static com.google.common.base.Preconditions.checkNotNull;
+import com.facebook.presto.spi.ConnectorSplit;
+import com.facebook.presto.spi.ConnectorTableHandle;
+import com.facebook.presto.spi.ConnectorTableLayoutHandle;
+import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 
 public class ExampleHandleResolver
         implements ConnectorHandleResolver
 {
-    private final String connectorId;
-
-    @Inject
-    public ExampleHandleResolver(ExampleConnectorId clientId)
+    @Override
+    public Class<? extends ConnectorTableLayoutHandle> getTableLayoutHandleClass()
     {
-        this.connectorId = checkNotNull(clientId, "clientId is null").toString();
+        return ExampleTableLayoutHandle.class;
     }
 
     @Override
-    public boolean canHandle(TableHandle tableHandle)
-    {
-        return tableHandle instanceof ExampleTableHandle && ((ExampleTableHandle) tableHandle).getConnectorId().equals(connectorId);
-    }
-
-    @Override
-    public boolean canHandle(ColumnHandle columnHandle)
-    {
-        return columnHandle instanceof ExampleColumnHandle && ((ExampleColumnHandle) columnHandle).getConnectorId().equals(connectorId);
-    }
-
-    @Override
-    public boolean canHandle(Split split)
-    {
-        return split instanceof ExampleSplit && ((ExampleSplit) split).getConnectorId().equals(connectorId);
-    }
-
-    @Override
-    public Class<? extends TableHandle> getTableHandleClass()
+    public Class<? extends ConnectorTableHandle> getTableHandleClass()
     {
         return ExampleTableHandle.class;
     }
@@ -64,8 +42,14 @@ public class ExampleHandleResolver
     }
 
     @Override
-    public Class<? extends Split> getSplitClass()
+    public Class<? extends ConnectorSplit> getSplitClass()
     {
         return ExampleSplit.class;
+    }
+
+    @Override
+    public Class<? extends ConnectorTransactionHandle> getTransactionHandleClass()
+    {
+        return ExampleTransactionHandle.class;
     }
 }

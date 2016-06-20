@@ -13,30 +13,80 @@
  */
 package com.facebook.presto.execution;
 
+import com.facebook.presto.Session;
 import com.facebook.presto.execution.StateMachine.StateChangeListener;
-import com.facebook.presto.sql.analyzer.Session;
+import com.facebook.presto.memory.VersionedMemoryPoolId;
+import com.facebook.presto.transaction.TransactionManager;
 import io.airlift.units.Duration;
 
 import java.net.URI;
 import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
+
+import static com.facebook.presto.memory.LocalMemoryManager.GENERAL_POOL;
+import static java.util.Objects.requireNonNull;
 
 public class FailedQueryExecution
         implements QueryExecution
 {
     private final QueryInfo queryInfo;
+    private final Session session;
 
-    public FailedQueryExecution(QueryId queryId, String query, Session session, URI self, Executor executor, Throwable cause)
+    public FailedQueryExecution(QueryId queryId, String query, Session session, URI self, TransactionManager transactionManager, Executor executor, Throwable cause)
     {
-        QueryStateMachine queryStateMachine = new QueryStateMachine(queryId, query, session, self, executor);
-        queryStateMachine.fail(cause);
+        requireNonNull(cause, "cause is null");
+        this.session = requireNonNull(session, "session is null");
+        QueryStateMachine queryStateMachine = QueryStateMachine.failed(queryId, query, session, self, transactionManager, executor, cause);
 
         queryInfo = queryStateMachine.getQueryInfo(null);
+    }
+
+    @Override
+    public QueryId getQueryId()
+    {
+        return queryInfo.getQueryId();
     }
 
     @Override
     public QueryInfo getQueryInfo()
     {
         return queryInfo;
+    }
+
+    @Override
+    public QueryState getState()
+    {
+        return queryInfo.getState();
+    }
+
+    @Override
+    public VersionedMemoryPoolId getMemoryPool()
+    {
+        return new VersionedMemoryPoolId(GENERAL_POOL, 0);
+    }
+
+    @Override
+    public void setMemoryPool(VersionedMemoryPoolId poolId)
+    {
+        // no-op
+    }
+
+    @Override
+    public long getTotalMemoryReservation()
+    {
+        return 0;
+    }
+
+    @Override
+    public Duration getTotalCpuTime()
+    {
+        return new Duration(0, TimeUnit.SECONDS);
+    }
+
+    @Override
+    public Session getSession()
+    {
+        return session;
     }
 
     @Override
@@ -59,12 +109,6 @@ public class FailedQueryExecution
     }
 
     @Override
-    public void cancel()
-    {
-        // no-op
-    }
-
-    @Override
     public void fail(Throwable cause)
     {
         // no-op
@@ -78,6 +122,12 @@ public class FailedQueryExecution
 
     @Override
     public void recordHeartbeat()
+    {
+        // no-op
+    }
+
+    @Override
+    public void pruneInfo()
     {
         // no-op
     }
