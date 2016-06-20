@@ -33,6 +33,7 @@ import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import io.airlift.compress.lzo.LzoCodec;
 import io.airlift.compress.lzo.LzopCodec;
+import io.airlift.log.Logger;
 import io.airlift.slice.Slice;
 import io.airlift.slice.SliceUtf8;
 import io.airlift.slice.Slices;
@@ -65,6 +66,8 @@ import org.joda.time.format.ISODateTimeFormat;
 
 import javax.annotation.Nullable;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
@@ -133,6 +136,8 @@ import static org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector.Cate
 
 public final class HiveUtil
 {
+    private static final Logger log = Logger.get(HiveUtil.class);
+
     public static final String PRESTO_VIEW_FLAG = "presto_view";
 
     private static final String VIEW_PREFIX = "/* Presto View: ";
@@ -146,6 +151,12 @@ public final class HiveUtil
     private static final int DECIMAL_SCALE_GROUP = 2;
 
     private static final String BIG_DECIMAL_POSTFIX = "BD";
+
+    private static final String METASTORE_SERDES =
+            "org.apache.hadoop.hive.ql.io.orc.OrcSerde,org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe," +
+                    "org.apache.hadoop.hive.serde2.columnar.ColumnarSerDe,org.apache.hadoop.hive.serde2.dynamic_type.DynamicSerDe," +
+                    "org.apache.hadoop.hive.serde2.MetadataTypedColumnsetSerDe,org.apache.hadoop.hive.serde2.columnar.LazyBinaryColumnarSerDe," +
+                    "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe,org.apache.hadoop.hive.serde2.lazybinary.LazyBinarySerDe";
 
     static {
         DateTimeParser[] timestampWithoutTimeZoneParser = {
@@ -733,6 +744,11 @@ public final class HiveUtil
         if (table.getStorage().getBucketProperty().isPresent()) {
             columns.add(bucketColumnHandle(connectorId));
         }
+        log.info("hiveColumnHandles");
+        StringWriter sw = new StringWriter();
+        new Throwable().printStackTrace(new PrintWriter(sw));
+        String stackTrace = sw.toString();
+        log.info(stackTrace);
 
         return columns.build();
     }
@@ -748,7 +764,6 @@ public final class HiveUtil
             StructField structField = fields.get(i);
             String fieldName = structField.getFieldName();
             HiveType fieldType = HiveType.valueOf(structField.getFieldObjectInspector().getTypeName());
-
             strFields.add(new Column(fieldName, fieldType, Optional.ofNullable("blah")));
         }
         return strFields;
@@ -767,6 +782,11 @@ public final class HiveUtil
     public static boolean hasSerializationClass(Table table)
     {
         return table.getStorage().getSerdeParameters().containsKey("serialization.class");
+    }
+
+    public static boolean hasMetastoreBasedSchema(String serdeLib)
+    {
+        return (serdeLib.length() < 1) || (METASTORE_SERDES.contains(serdeLib));
     }
 
     public static List<HiveColumnHandle> getRegularColumnHandles(String connectorId, Table table)
