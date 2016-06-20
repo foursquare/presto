@@ -33,6 +33,7 @@ import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import io.airlift.compress.lzo.LzoCodec;
 import io.airlift.compress.lzo.LzopCodec;
+import io.airlift.log.Logger;
 import io.airlift.slice.Slice;
 import io.airlift.slice.SliceUtf8;
 import io.airlift.slice.Slices;
@@ -40,6 +41,10 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.common.JavaUtils;
+import org.apache.hadoop.hive.metastore.api.FieldSchema;
+import org.apache.hadoop.hive.metastore.api.SerDeInfo;
+import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
+import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.ql.io.SymlinkTextInputFormat;
 import org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat;
 import org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe;
@@ -65,6 +70,8 @@ import org.joda.time.format.ISODateTimeFormat;
 
 import javax.annotation.Nullable;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
@@ -133,6 +140,8 @@ import static org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector.Cate
 
 public final class HiveUtil
 {
+    private static final Logger log = Logger.get(HiveUtil.class);
+
     public static final String PRESTO_VIEW_FLAG = "presto_view";
 
     private static final String VIEW_PREFIX = "/* Presto View: ";
@@ -146,6 +155,12 @@ public final class HiveUtil
     private static final int DECIMAL_SCALE_GROUP = 2;
 
     private static final String BIG_DECIMAL_POSTFIX = "BD";
+
+    private static final String METASTORE_SERDES =
+            "org.apache.hadoop.hive.ql.io.orc.OrcSerde,org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe," +
+                    "org.apache.hadoop.hive.serde2.columnar.ColumnarSerDe,org.apache.hadoop.hive.serde2.dynamic_type.DynamicSerDe," +
+                    "org.apache.hadoop.hive.serde2.MetadataTypedColumnsetSerDe,org.apache.hadoop.hive.serde2.columnar.LazyBinaryColumnarSerDe," +
+                    "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe,org.apache.hadoop.hive.serde2.lazybinary.LazyBinarySerDe";
 
     static {
         DateTimeParser[] timestampWithoutTimeZoneParser = {
@@ -733,6 +748,11 @@ public final class HiveUtil
         if (table.getStorage().getBucketProperty().isPresent()) {
             columns.add(bucketColumnHandle(connectorId));
         }
+        log.info("hiveColumnHandles");
+        StringWriter sw = new StringWriter();
+        new Throwable().printStackTrace(new PrintWriter(sw));
+        String stackTrace = sw.toString();
+        log.info(stackTrace);
 
         return columns.build();
     }
@@ -748,13 +768,16 @@ public final class HiveUtil
             StructField structField = fields.get(i);
             String fieldName = structField.getFieldName();
             HiveType fieldType = HiveType.valueOf(structField.getFieldObjectInspector().getTypeName());
-
             strFields.add(new Column(fieldName, fieldType, Optional.ofNullable("blah")));
+            String fieldTypeName = structField.getFieldObjectInspector().getTypeName();
+            String fieldComment = ""; // determineFieldComment(structField.getFieldComment());
+
+            strFields.add(new FieldSchema(fieldName, fieldTypeName, fieldComment));
         }
         return strFields;
     }
 
-    public static List<Column> getTableFields(Table table)
+    /*public static List<Column> getTableFields(Table table)
     {
         if (hasSerializationClass(table)) {
             return getFieldsFromDeserializer(table);
@@ -762,23 +785,67 @@ public final class HiveUtil
         else {
             return table.getDataColumns();
         }
-    }
+    }*/
 
     public static boolean hasSerializationClass(Table table)
     {
         return table.getStorage().getSerdeParameters().containsKey("serialization.class");
     }
 
-    public static List<HiveColumnHandle> getRegularColumnHandles(String connectorId, Table table)
+    //public static List<HiveColumnHandle> getRegularColumnHandles(String connectorId, Table table)
+
+    public static List<FieldSchema> getTableFields(Table table)
+    {
+        ArrayList<FieldSchema> strFields = new ArrayList<FieldSchema>();
+
+        if (hasMetastoreBasedSchema(table)) {
+            log.info("getCols");
+            return table.getSd().getCols();
+        }
+        else {
+            log.info("getFieldsFromDeserializer");
+            return getFieldsFromDeserializer(table);
+        }
+    }
+
+    public static boolean hasMetastoreBasedSchema(Table table)
+    {
+        StorageDescriptor descriptor = table.getSd();
+        if (descriptor == null) {
+            log.info("no descriptor");
+            // throw new PrestoException(HIVE_INVALID_METADATA, "Table is missing storage descriptor");
+        }
+        SerDeInfo serdeInfo = descriptor.getSerdeInfo();
+        if (serdeInfo == null) {
+            log.info("no serdeInfo");
+            // throw new PrestoException(HIVE_INVALID_METADATA, "Table storage descriptor is missing SerDe info");
+        }
+        String serializationLib = serdeInfo.getSerializationLib();
+        log.info("serdeLib: %s", serializationLib);
+
+        return hasMetastoreBasedSchema(serializationLib);
+    }
+
+    public static boolean hasMetastoreBasedSchema(String serdeLib)
+    {
+        return (serdeLib.length() < 1) || (METASTORE_SERDES.contains(serdeLib));
+    }
+
+    public static List<HiveColumnHandle> getNonPartitionKeyColumnHandles(String connectorId, Table table)
     {
         ImmutableList.Builder<HiveColumnHandle> columns = ImmutableList.builder();
 
         int hiveColumnIndex = 0;
-        for (Column field : getTableFields(table)) {
+        for (FieldSchema field : getTableFields(table)) {
+            log.info("going over column field: %s", field.getName());
+            log.info("going over column type: %s", field.getType());
             // ignore unsupported types rather than failing
             HiveType hiveType = field.getType();
             if (hiveType.isSupportedType()) {
-                columns.add(new HiveColumnHandle(connectorId, field.getName(), hiveType, hiveType.getTypeSignature(), hiveColumnIndex, REGULAR, field.getComment()));
+                Boolean isSupported = hiveType.isSupportedType();
+                if (isSupported) {
+                    columns.add(new HiveColumnHandle(connectorId, field.getName(), hiveType, hiveType.getTypeSignature(), hiveColumnIndex, false));
+                }
             }
             hiveColumnIndex++;
         }
