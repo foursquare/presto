@@ -14,6 +14,7 @@
 package com.facebook.presto.jdbc;
 
 import com.facebook.presto.client.ClientSession;
+import com.facebook.presto.client.QueryResults;
 import com.facebook.presto.client.ServerInfo;
 import com.facebook.presto.client.StatementClient;
 import com.google.common.base.Splitter;
@@ -594,6 +595,33 @@ public class PrestoConnection
                 new Duration(2, MINUTES));
 
         return queryExecutor.startQuery(session, sql);
+    }
+
+    StatementClient getClientFromQueryResults(QueryResults queryResults)
+    {
+        return queryExecutor.getClientFromQueryResults(getClientSession(), queryResults);
+    }
+
+    ClientSession getClientSession()
+    {
+        URI uri = createHttpUri(address);
+
+        String source = firstNonNull(clientInfo.get("ApplicationName"), "presto-jdbc");
+
+        ClientSession session = new ClientSession(
+          uri,
+          user,
+          source,
+          catalog.get(),
+          schema.get(),
+          timeZoneId.get(),
+          locale.get(),
+          ImmutableMap.copyOf(sessionProperties),
+          transactionId.get(),
+          false,
+          new Duration(2, MINUTES));
+
+        return session;
     }
 
     private void checkOpen()
