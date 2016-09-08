@@ -121,6 +121,33 @@ public class StatementClient
         processResponse(response);
     }
 
+    public StatementClient(
+      HttpClient httpClient,
+      JsonCodec<QueryResults> queryResultsCodec,
+      ClientSession session, String query,
+      QueryResults queryResults
+    )
+    {
+        requireNonNull(httpClient, "httpClient is null");
+        requireNonNull(queryResultsCodec, "queryResultsCodec is null");
+        requireNonNull(session, "session is null");
+        requireNonNull(query, "query is null");
+
+        this.httpClient = httpClient;
+        this.responseHandler = createFullJsonResponseHandler(queryResultsCodec);
+        this.debug = session.isDebug();
+        this.timeZoneId = session.getTimeZoneId();
+        this.query = query;
+        this.requestTimeoutNanos = session.getClientRequestTimeout().roundTo(NANOSECONDS);
+        this.user = session.getUser();
+
+        // setting the query results gets us to a state where we can init the client from a previous client of a query run.
+        // we skip a few inits that happen in processResponse that seem insignifact for what we want to do.
+        // the queryResults we pass is a product of a partial serialization of the previous query results.
+        // we serizlize the fields that are needed to continue monitoring the transaction.
+        currentResults.set(queryResults);
+    }
+
     private Request buildQueryRequest(ClientSession session, String query)
     {
         Request.Builder builder = prepareRequest(preparePost(), uriBuilderFrom(session.getServer()).replacePath("/v1/statement").build())

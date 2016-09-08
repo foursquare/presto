@@ -62,6 +62,12 @@ class QueryExecutor
         return new StatementClient(httpClient, queryInfoCodec, session, query);
     }
 
+    public StatementClient getClientFromQueryResults(ClientSession session, QueryResults queryResults)
+    {
+        // the query field is insignificant for what we want to do
+        return new StatementClient(httpClient, queryInfoCodec, session, "", queryResults);
+    }
+
     @Override
     public void close()
     {

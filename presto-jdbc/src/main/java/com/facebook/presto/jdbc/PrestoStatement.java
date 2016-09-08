@@ -13,9 +13,11 @@
  */
 package com.facebook.presto.jdbc;
 
+import com.facebook.presto.client.QueryResults;
 import com.facebook.presto.client.StatementClient;
 import com.google.common.primitives.Ints;
 
+import java.net.URI;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -192,6 +194,81 @@ public class PrestoStatement
     {
         checkOpen();
         // ignore: positioned modifications not supported
+    }
+
+    public QueryResults startUpdateExecute(String sql)
+      throws SQLException
+    {
+        clearCurrentResults();
+        checkOpen();
+
+        boolean exceptionRaised = false;
+        StatementClient client = null;
+        ResultSet resultSet = null;
+        try {
+            client = connection().startQuery(sql);
+            if (client.isFailed()) {
+                throw resultsException(client.finalResults());
+            }
+
+            resultSet = new PrestoResultSet(client, maxRows.get(), progressConsumer);
+            checkSetOrResetSession(client);
+
+            // check if this is a query
+            if (client.current().getUpdateType() == null) {
+                throw new SQLException("This is not an update query!");
+            }
+
+            return client.current();
+        }
+        catch (RuntimeException e) {
+            exceptionRaised = true;
+            throw new SQLException("Error executing query", e);
+        }
+        finally {
+            if (exceptionRaised) {
+                if (resultSet != null) {
+                    resultSet.close();
+                }
+                if (client != null) {
+                    client.close();
+                }
+            }
+        }
+    }
+
+    public QueryResults advanceUpdateExecution(QueryResults queryResults)
+      throws SQLException
+    {
+        clearCurrentResults();
+        checkOpen();
+        boolean exceptionRaised = false;
+
+        StatementClient client = connection().getClientFromQueryResults(queryResults);
+        try {
+            if (client.isValid()) {
+                client.advance();
+            }
+            return client.current();
+        }
+        catch (RuntimeException e) {
+            exceptionRaised = true;
+            throw new SQLException("Error when checking if query is complete", e);
+        }
+        finally {
+            if (exceptionRaised || (client != null && !client.isValid())) {
+                if (client != null) {
+                    client.close();
+                }
+            }
+        }
+    }
+
+    // this needs to get full QueryResults and not an instance that was serialized
+    public boolean isUpdateExecutionComplete(QueryResults queryResults)
+    {
+        URI nextUri = queryResults.getNextUri();
+        return (nextUri == null);
     }
 
     @Override
