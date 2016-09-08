@@ -25,6 +25,7 @@ import javax.annotation.Nullable;
 import javax.annotation.concurrent.Immutable;
 import javax.validation.constraints.NotNull;
 
+import java.io.Serializable;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -63,17 +64,18 @@ import static java.util.Collections.unmodifiableList;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toList;
 
+// TODO(ophir): make the stats/error serializable
 @Immutable
-public class QueryResults
+public class QueryResults implements Serializable
 {
     private final String id;
     private final URI infoUri;
     private final URI partialCancelUri;
     private final URI nextUri;
-    private final List<Column> columns;
-    private final Iterable<List<Object>> data;
-    private final StatementStats stats;
-    private final QueryError error;
+    private final transient List<Column> columns;
+    private final transient Iterable<List<Object>> data;
+    private final transient StatementStats stats;
+    private final transient QueryError error;
     private final String updateType;
     private final Long updateCount;
 
