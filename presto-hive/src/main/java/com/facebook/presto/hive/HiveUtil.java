@@ -26,7 +26,6 @@ import com.facebook.presto.spi.type.VarcharType;
 import com.google.common.base.Joiner;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
-import io.airlift.log.Logger;
 import io.airlift.slice.Slice;
 import io.airlift.slice.SliceUtf8;
 import io.airlift.slice.Slices;
@@ -63,8 +62,6 @@ import org.joda.time.format.DateTimeParser;
 import org.joda.time.format.DateTimePrinter;
 import org.joda.time.format.ISODateTimeFormat;
 
-import java.io.PrintWriter;
-import java.io.StringWriter;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
@@ -117,8 +114,6 @@ import static org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector.Cate
 
 public final class HiveUtil
 {
-    private static final Logger log = Logger.get(HiveUtil.class);
-
     public static final String PRESTO_VIEW_FLAG = "presto_view";
 
     private static final String VIEW_PREFIX = "/* Presto View: ";
@@ -633,12 +628,6 @@ public final class HiveUtil
         // add the partition keys last (like Hive does)
         columns.addAll(getPartitionKeyColumnHandles(connectorId, table));
 
-        log.info("hiveColumnHandles");
-        StringWriter sw = new StringWriter();
-        new Throwable().printStackTrace(new PrintWriter(sw));
-        String stackTrace = sw.toString();
-        log.info(stackTrace);
-
         return columns.build();
     }
 
@@ -648,7 +637,6 @@ public static List<FieldSchema> getFieldsFromDeserializer(Table table)
 
         List<? extends StructField> fields = getTableStructFields(table);
         int size = fields.size();
-        log.info("fields size: %s", size);
 
         for (int i = 0; i < fields.size(); i++) {
             StructField structField = fields.get(i);
@@ -666,11 +654,9 @@ public static List<FieldSchema> getFieldsFromDeserializer(Table table)
         ArrayList<FieldSchema> strFields = new ArrayList<FieldSchema>();
 
         if (hasMetastoreBasedSchema(table)) {
-            log.info("getCols");
             return table.getSd().getCols();
         }
         else {
-            log.info("getFieldsFromDeserializer");
             return getFieldsFromDeserializer(table);
         }
     }
@@ -679,16 +665,13 @@ public static List<FieldSchema> getFieldsFromDeserializer(Table table)
     {
         StorageDescriptor descriptor = table.getSd();
         if (descriptor == null) {
-            log.info("no descriptor");
-            // throw new PrestoException(HIVE_INVALID_METADATA, "Table is missing storage descriptor");
+            throw new PrestoException(HIVE_INVALID_METADATA, "Table is missing storage descriptor");
         }
         SerDeInfo serdeInfo = descriptor.getSerdeInfo();
         if (serdeInfo == null) {
-            log.info("no serdeInfo");
-            // throw new PrestoException(HIVE_INVALID_METADATA, "Table storage descriptor is missing SerDe info");
+            throw new PrestoException(HIVE_INVALID_METADATA, "Table storage descriptor is missing SerDe info");
         }
         String serializationLib = serdeInfo.getSerializationLib();
-        log.info("serdeLib: %s", serializationLib);
 
         return hasMetastoreBasedSchema(serializationLib);
     }
@@ -704,8 +687,6 @@ public static List<FieldSchema> getFieldsFromDeserializer(Table table)
 
         int hiveColumnIndex = 0;
         for (FieldSchema field : getTableFields(table)) {
-            log.info("going over column field: %s", field.getName());
-            log.info("going over column type: %s", field.getType());
             // ignore unsupported types rather than failing
             HiveType hiveType = HiveType.valueOf(field.getType());
             if (hiveType.isSupportedType()) {
