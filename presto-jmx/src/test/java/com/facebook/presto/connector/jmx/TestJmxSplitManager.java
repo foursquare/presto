@@ -32,6 +32,7 @@ import com.google.common.collect.ImmutableSet;
 import org.testng.annotations.Test;
 
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -154,6 +155,18 @@ public class TestJmxSplitManager
         public Set<Node> getCoordinators()
         {
             return ImmutableSet.of(localNode);
+        }
+
+        @Override
+        public void setNodeCandidatesBlacklist(List<HostAddress> blacklist)
+        {
+            return;
+        }
+
+        @Override
+        public List<HostAddress> getNodeCandidatesBlacklist()
+        {
+            return new ArrayList<>();
         }
     }
 

@@ -38,6 +38,7 @@ import org.testng.annotations.Test;
 
 import java.io.File;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -231,6 +232,18 @@ public class TestShardEjector
         public Set<Node> getCoordinators()
         {
             throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void setNodeCandidatesBlacklist(List<HostAddress> blacklist)
+        {
+            return;
+        }
+
+        @Override
+        public List<HostAddress> getNodeCandidatesBlacklist()
+        {
+            return new ArrayList<>();
         }
     }
 

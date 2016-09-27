@@ -16,6 +16,7 @@ package com.facebook.presto.metadata;
 import com.facebook.presto.client.NodeVersion;
 import com.facebook.presto.connector.system.GlobalSystemConnector;
 import com.facebook.presto.failureDetector.FailureDetector;
+import com.facebook.presto.spi.HostAddress;
 import com.facebook.presto.spi.Node;
 import com.facebook.presto.spi.NodeState;
 import com.google.common.base.Splitter;
@@ -40,6 +41,8 @@ import javax.inject.Inject;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -74,6 +77,7 @@ public final class DiscoveryNodeManager
     private final ConcurrentHashMap<String, RemoteNodeState> nodeStates = new ConcurrentHashMap<>();
     private final HttpClient httpClient;
     private final ScheduledExecutorService nodeStateUpdateExecutor;
+    private List<HostAddress> nodeCandidatesBlacklist = new ArrayList<>();
 
     @GuardedBy("this")
     private SetMultimap<String, Node> activeNodesByDataSource;
@@ -321,5 +325,15 @@ public final class DiscoveryNodeManager
     {
         String nodeVersion = descriptor.getProperties().get("node_version");
         return nodeVersion == null ? null : new NodeVersion(nodeVersion);
+    }
+
+    public void setNodeCandidatesBlacklist(List<HostAddress> blacklist)
+    {
+        nodeCandidatesBlacklist = blacklist;
+    }
+
+    public List<HostAddress> getNodeCandidatesBlacklist()
+    {
+        return nodeCandidatesBlacklist;
     }
 }

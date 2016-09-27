@@ -16,6 +16,7 @@ package com.facebook.presto.execution.scheduler;
 import com.facebook.presto.execution.NodeTaskMap;
 import com.facebook.presto.execution.RemoteTask;
 import com.facebook.presto.metadata.Split;
+import com.facebook.presto.spi.HostAddress;
 import com.facebook.presto.spi.Node;
 import com.facebook.presto.spi.NodeManager;
 import com.facebook.presto.spi.PrestoException;
@@ -30,6 +31,7 @@ import io.airlift.log.Logger;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 import static com.facebook.presto.execution.scheduler.NodeScheduler.randomizedNodes;
 import static com.facebook.presto.execution.scheduler.NodeScheduler.selectDistributionNodes;
@@ -97,6 +99,23 @@ public class SimpleNodeSelector
         return selectNodes(limit, randomizedNodes(nodeMap.get().get(), includeCoordinator), doubleScheduling);
     }
 
+    private boolean isBlacklistedNode(Node node, List<HostAddress> blacklistedNodes)
+    {
+        return isBlacklistedNode(node.getHostAndPort(), blacklistedNodes);
+    }
+
+    private boolean isBlacklistedNode(HostAddress hostAddress, List<HostAddress> blacklistedNodes)
+    {
+        String host = hostAddress.getHostText();
+        int port = hostAddress.getPort();
+        for (HostAddress blacklisted : blacklistedNodes) {
+            if (host.equals(blacklisted.getHostText()) && port == blacklisted.getPort()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @Override
     public Multimap<Node, Split> computeAssignments(Set<Split> splits, List<RemoteTask> existingTasks)
     {
@@ -105,6 +124,7 @@ public class SimpleNodeSelector
         NodeAssignmentStats assignmentStats = new NodeAssignmentStats(nodeTaskMap, nodeMap, existingTasks);
 
         ResettableRandomizedIterator<Node> randomCandidates = randomizedNodes(nodeMap, includeCoordinator);
+        List<HostAddress> blacklistedNodes = nodeManager.getNodeCandidatesBlacklist();
         for (Split split : splits) {
             randomCandidates.reset();
 
@@ -115,7 +135,8 @@ public class SimpleNodeSelector
             else {
                 candidateNodes = selectNodes(minCandidates, randomCandidates, doubleScheduling);
             }
-            if (candidateNodes.isEmpty()) {
+            List<Node> filteredCandidateNodes = candidateNodes.stream().filter(node -> !isBlacklistedNode(node, blacklistedNodes)).collect(Collectors.toList());
+            if (filteredCandidateNodes.isEmpty()) {
                 log.debug("No nodes available to schedule %s. Available nodes %s", split, nodeMap.getNodesByHost().keys());
                 throw new PrestoException(NO_NODES_AVAILABLE, "No nodes available to run query");
             }
@@ -123,7 +144,7 @@ public class SimpleNodeSelector
             Node chosenNode = null;
             int min = Integer.MAX_VALUE;
 
-            for (Node node : candidateNodes) {
+            for (Node node : filteredCandidateNodes) {
                 int totalSplitCount = assignmentStats.getTotalSplitCount(node);
                 if (totalSplitCount < min && totalSplitCount < maxSplitsPerNode) {
                     chosenNode = node;
@@ -131,7 +152,7 @@ public class SimpleNodeSelector
                 }
             }
             if (chosenNode == null) {
-                for (Node node : candidateNodes) {
+                for (Node node : filteredCandidateNodes) {
                     int totalSplitCount = assignmentStats.getTotalQueuedSplitCount(node);
                     if (totalSplitCount < min && totalSplitCount < maxSplitsPerNodePerTaskWhenFull) {
                         chosenNode = node;

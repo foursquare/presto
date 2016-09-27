@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.spi;
 
+import java.util.List;
 import java.util.Set;
 
 public interface NodeManager
@@ -24,4 +25,8 @@ public interface NodeManager
     Node getCurrentNode();
 
     Set<Node> getCoordinators();
+
+    void setNodeCandidatesBlacklist(List<HostAddress> blacklist);
+
+    List<HostAddress> getNodeCandidatesBlacklist();
 }

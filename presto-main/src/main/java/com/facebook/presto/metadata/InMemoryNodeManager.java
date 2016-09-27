@@ -14,6 +14,7 @@
 package com.facebook.presto.metadata;
 
 import com.facebook.presto.client.NodeVersion;
+import com.facebook.presto.spi.HostAddress;
 import com.facebook.presto.spi.Node;
 import com.facebook.presto.spi.NodeState;
 import com.google.common.collect.HashMultimap;
@@ -25,6 +26,8 @@ import com.google.common.collect.SetMultimap;
 import javax.inject.Inject;
 
 import java.net.URI;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 
 public class InMemoryNodeManager
@@ -32,6 +35,7 @@ public class InMemoryNodeManager
 {
     private final Node localNode;
     private final SetMultimap<String, Node> remoteNodes = Multimaps.synchronizedSetMultimap(HashMultimap.<String, Node>create());
+    private List<HostAddress> nodeCandidatesBlacklist = new ArrayList<>();
 
     @Inject
     public InMemoryNodeManager()
@@ -103,5 +107,15 @@ public class InMemoryNodeManager
     public void refreshNodes()
     {
         // no-op
+    }
+
+    public void setNodeCandidatesBlacklist(List<HostAddress> blacklist)
+    {
+        nodeCandidatesBlacklist = blacklist;
+    }
+
+    public List<HostAddress> getNodeCandidatesBlacklist()
+    {
+        return nodeCandidatesBlacklist;
     }
 }
