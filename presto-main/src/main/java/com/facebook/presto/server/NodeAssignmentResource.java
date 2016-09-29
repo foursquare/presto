@@ -56,7 +56,12 @@ public class NodeAssignmentResource
 
     for (Node node : nodes) {
       HostAddress nodeHostAddress = node.getHostAndPort();
-      nodeAssignments.add(new NodeAssignmentInfo(nodeHostAddress.getHostText(), nodeHostAddress.getPort(), nodeTaskMap.getPartitionedSplitsOnNode(node)));
+      nodeAssignments.add(new NodeAssignmentInfo(
+        nodeHostAddress.getHostText(),
+        nodeHostAddress.getPort(),
+        nodeTaskMap.getPartitionedSplitsOnNode(node),
+        nodeTaskMap.getNumberOfTasksOnNode(node)
+      ));
     }
     return nodeAssignments.build();
   }

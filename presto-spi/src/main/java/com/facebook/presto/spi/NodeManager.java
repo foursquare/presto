@@ -28,5 +28,5 @@ public interface NodeManager
 
     void setNodeCandidatesBlacklist(List<HostAddress> blacklist);
 
-    List<HostAddress> getNodeCandidatesBlacklist();
+    List<Node> filterNodesWithBlackList(List<Node> nodes);
 }

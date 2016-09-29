@@ -26,22 +26,31 @@ public class NodeAssignmentInfo
   private final String nodeHost;
   private final int nodePort;
   private final int totalSplitCount;
+  private final int numTasks;
 
   @JsonCreator
   public NodeAssignmentInfo(
     @JsonProperty("nodeHost") String nodeHost,
     @JsonProperty("nodePort") int nodePort,
-    @JsonProperty("totalSplitCount") int totalSplitCount)
+    @JsonProperty("totalSplitCount") int totalSplitCount,
+    @JsonProperty("numTasks") int numTasks)
   {
     this.nodeHost = nodeHost;
     this.nodePort = nodePort;
     this.totalSplitCount = totalSplitCount;
+    this.numTasks = numTasks;
   }
 
   @JsonProperty
   public int getTotalSplitCount()
   {
     return totalSplitCount;
+  }
+
+  @JsonProperty
+  public int getNumTasks()
+  {
+    return numTasks;
   }
 
   @JsonProperty
@@ -63,6 +72,7 @@ public class NodeAssignmentInfo
       .add("nodeHost", nodeHost)
       .add("nodePort", nodePort)
       .add("totalSplitCount", totalSplitCount)
+      .add("numTasks", numTasks)
       .toString();
   }
 }

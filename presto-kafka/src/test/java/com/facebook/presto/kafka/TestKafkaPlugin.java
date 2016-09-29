@@ -29,7 +29,6 @@ import com.google.common.collect.ImmutableSet;
 import org.testng.annotations.Test;
 
 import java.net.URI;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -143,9 +142,9 @@ public class TestKafkaPlugin
         }
 
         @Override
-        public List<HostAddress> getNodeCandidatesBlacklist()
+        public List<Node> filterNodesWithBlackList(List<Node> nodes)
         {
-            return new ArrayList<>();
+            return nodes;
         }
     }
 

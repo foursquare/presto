@@ -29,6 +29,7 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class InMemoryNodeManager
         implements InternalNodeManager
@@ -109,13 +110,30 @@ public class InMemoryNodeManager
         // no-op
     }
 
+    private boolean isBlacklistedNode(Node node)
+    {
+        return isBlacklistedNode(node.getHostAndPort());
+    }
+
+    private boolean isBlacklistedNode(HostAddress hostAddress)
+    {
+        String host = hostAddress.getHostText();
+        int port = hostAddress.getPort();
+        for (HostAddress blacklisted : nodeCandidatesBlacklist) {
+            if (host.equals(blacklisted.getHostText()) && port == blacklisted.getPort()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public void setNodeCandidatesBlacklist(List<HostAddress> blacklist)
     {
         nodeCandidatesBlacklist = blacklist;
     }
 
-    public List<HostAddress> getNodeCandidatesBlacklist()
+    public List<Node> filterNodesWithBlackList(List<Node> nodes)
     {
-        return nodeCandidatesBlacklist;
+        return nodes.stream().filter(node -> !isBlacklistedNode(node)).collect(Collectors.toList());
     }
 }

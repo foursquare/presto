@@ -38,7 +38,6 @@ import org.testng.annotations.Test;
 
 import java.io.File;
 import java.net.URI;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -241,9 +240,9 @@ public class TestShardEjector
         }
 
         @Override
-        public List<HostAddress> getNodeCandidatesBlacklist()
+        public List<Node> filterNodesWithBlackList(List<Node> nodes)
         {
-            return new ArrayList<>();
+            return nodes;
         }
     }
 
