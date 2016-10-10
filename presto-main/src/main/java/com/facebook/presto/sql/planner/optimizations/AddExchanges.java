@@ -595,6 +595,22 @@ public class AddExchanges
             return planTableScan(node, BooleanLiteral.TRUE_LITERAL, context);
         }
 
+        private boolean isSourceOrdered(TableWriterNode node)
+        {
+          if (node.getSource() instanceof ProjectNode) {
+            PlanNode source = ((ProjectNode) node.getSource()).getSource();
+            if ((source instanceof SortNode) || (source instanceof TopNNode)) {
+              return true;
+            }
+            else {
+              return false;
+            }
+          }
+          else {
+            return false;
+          }
+        }
+
         @Override
         public PlanWithProperties visitTableWriter(TableWriterNode node, Context context)
         {
@@ -605,7 +621,7 @@ public class AddExchanges
                 partitionFunction = Optional.of(new PartitionFunctionBinding(FIXED_RANDOM_DISTRIBUTION, source.getNode().getOutputSymbols(), ImmutableList.of()));
             }
 
-            if (partitionFunction.isPresent()) {
+            if (!isSourceOrdered(node) && partitionFunction.isPresent()) {
                 source = withDerivedProperties(
                         partitionedExchange(
                                 idAllocator.getNextId(),
