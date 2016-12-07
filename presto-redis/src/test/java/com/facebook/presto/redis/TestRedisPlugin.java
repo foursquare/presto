@@ -134,18 +134,6 @@ public class TestRedisPlugin
         {
             return ImmutableSet.of(LOCAL_NODE);
         }
-
-        @Override
-        public void setNodeCandidatesBlacklist(List<HostAddress> blacklist)
-        {
-            return;
-        }
-
-        @Override
-        public List<Node> filterNodesWithBlackList(List<Node> nodes)
-        {
-            return nodes;
-        }
     }
 
     private static class TestingNode

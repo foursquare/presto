@@ -16,7 +16,6 @@ package com.facebook.presto.metadata;
 import com.facebook.presto.client.NodeVersion;
 import com.facebook.presto.connector.system.GlobalSystemConnector;
 import com.facebook.presto.failureDetector.FailureDetector;
-import com.facebook.presto.spi.HostAddress;
 import com.facebook.presto.spi.Node;
 import com.facebook.presto.spi.NodeState;
 import com.google.common.base.Splitter;
@@ -41,14 +40,11 @@ import javax.inject.Inject;
 
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 import static com.facebook.presto.spi.NodeState.ACTIVE;
 import static com.facebook.presto.spi.NodeState.INACTIVE;
@@ -78,7 +74,6 @@ public final class DiscoveryNodeManager
     private final ConcurrentHashMap<String, RemoteNodeState> nodeStates = new ConcurrentHashMap<>();
     private final HttpClient httpClient;
     private final ScheduledExecutorService nodeStateUpdateExecutor;
-    private List<HostAddress> nodeCandidatesBlacklist = new ArrayList<>();
 
     @GuardedBy("this")
     private SetMultimap<String, Node> activeNodesByDataSource;
@@ -326,32 +321,5 @@ public final class DiscoveryNodeManager
     {
         String nodeVersion = descriptor.getProperties().get("node_version");
         return nodeVersion == null ? null : new NodeVersion(nodeVersion);
-    }
-
-    private boolean isBlacklistedNode(Node node)
-    {
-        return isBlacklistedNode(node.getHostAndPort());
-    }
-
-    private boolean isBlacklistedNode(HostAddress hostAddress)
-    {
-        String host = hostAddress.getHostText();
-        int port = hostAddress.getPort();
-        for (HostAddress blacklisted : nodeCandidatesBlacklist) {
-            if (host.equals(blacklisted.getHostText()) && port == blacklisted.getPort()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    public void setNodeCandidatesBlacklist(List<HostAddress> blacklist)
-    {
-        nodeCandidatesBlacklist = blacklist;
-    }
-
-    public List<Node> filterNodesWithBlackList(List<Node> nodes)
-    {
-        return nodes.stream().filter(node -> !isBlacklistedNode(node)).collect(Collectors.toList());
     }
 }

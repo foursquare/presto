@@ -14,7 +14,6 @@
 package com.facebook.presto.metadata;
 
 import com.facebook.presto.client.NodeVersion;
-import com.facebook.presto.spi.HostAddress;
 import com.facebook.presto.spi.Node;
 import com.facebook.presto.spi.NodeState;
 import com.google.common.collect.HashMultimap;
@@ -26,17 +25,13 @@ import com.google.common.collect.SetMultimap;
 import javax.inject.Inject;
 
 import java.net.URI;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 public class InMemoryNodeManager
         implements InternalNodeManager
 {
     private final Node localNode;
     private final SetMultimap<String, Node> remoteNodes = Multimaps.synchronizedSetMultimap(HashMultimap.<String, Node>create());
-    private List<HostAddress> nodeCandidatesBlacklist = new ArrayList<>();
 
     @Inject
     public InMemoryNodeManager()
@@ -108,32 +103,5 @@ public class InMemoryNodeManager
     public void refreshNodes()
     {
         // no-op
-    }
-
-    private boolean isBlacklistedNode(Node node)
-    {
-        return isBlacklistedNode(node.getHostAndPort());
-    }
-
-    private boolean isBlacklistedNode(HostAddress hostAddress)
-    {
-        String host = hostAddress.getHostText();
-        int port = hostAddress.getPort();
-        for (HostAddress blacklisted : nodeCandidatesBlacklist) {
-            if (host.equals(blacklisted.getHostText()) && port == blacklisted.getPort()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    public void setNodeCandidatesBlacklist(List<HostAddress> blacklist)
-    {
-        nodeCandidatesBlacklist = blacklist;
-    }
-
-    public List<Node> filterNodesWithBlackList(List<Node> nodes)
-    {
-        return nodes.stream().filter(node -> !isBlacklistedNode(node)).collect(Collectors.toList());
     }
 }

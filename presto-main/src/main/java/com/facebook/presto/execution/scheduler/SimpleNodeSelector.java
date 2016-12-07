@@ -27,7 +27,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Multimap;
 import io.airlift.log.Logger;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
@@ -95,13 +94,7 @@ public class SimpleNodeSelector
     @Override
     public List<Node> selectRandomNodes(int limit)
     {
-        ResettableRandomizedIterator<Node> nodeIterator = randomizedNodes(nodeMap.get().get(), includeCoordinator);
-        List<Node> nodeList = new ArrayList<>();
-        while (nodeIterator.hasNext()) {
-            nodeList.add(nodeIterator.next());
-        }
-        List<Node> filteredNodes = nodeManager.filterNodesWithBlackList(nodeList);
-        return selectNodes(limit, new ResettableRandomizedIterator<>(filteredNodes), doubleScheduling);
+        return selectNodes(limit, randomizedNodes(nodeMap.get().get(), includeCoordinator), doubleScheduling);
     }
 
     @Override
@@ -122,8 +115,8 @@ public class SimpleNodeSelector
             else {
                 candidateNodes = selectNodes(minCandidates, randomCandidates, doubleScheduling);
             }
-            List<Node> filteredCandidateNodes = nodeManager.filterNodesWithBlackList(candidateNodes);
-            if (filteredCandidateNodes.isEmpty()) {
+
+            if (candidateNodes.isEmpty()) {
                 log.debug("No nodes available to schedule %s. Available nodes %s", split, nodeMap.getNodesByHost().keys());
                 throw new PrestoException(NO_NODES_AVAILABLE, "No nodes available to run query");
             }
@@ -131,7 +124,7 @@ public class SimpleNodeSelector
             Node chosenNode = null;
             int min = Integer.MAX_VALUE;
 
-            for (Node node : filteredCandidateNodes) {
+            for (Node node : candidateNodes) {
                 int totalSplitCount = assignmentStats.getTotalSplitCount(node);
                 if (totalSplitCount < min && totalSplitCount < maxSplitsPerNode) {
                     chosenNode = node;
@@ -139,7 +132,7 @@ public class SimpleNodeSelector
                 }
             }
             if (chosenNode == null) {
-                for (Node node : filteredCandidateNodes) {
+                for (Node node : candidateNodes) {
                     int totalSplitCount = assignmentStats.getTotalQueuedSplitCount(node);
                     if (totalSplitCount < min && totalSplitCount < maxSplitsPerNodePerTaskWhenFull) {
                         chosenNode = node;

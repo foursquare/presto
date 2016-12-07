@@ -20,16 +20,14 @@ import com.facebook.presto.spi.NodeManager;
 import com.google.common.collect.ImmutableList;
 
 import javax.inject.Inject;
-import javax.ws.rs.Consumes;
 import javax.ws.rs.GET;
-import javax.ws.rs.POST;
 import javax.ws.rs.Path;
-import javax.ws.rs.core.MediaType;
 
 import java.util.List;
 import java.util.Set;
 
 import static com.facebook.presto.spi.NodeState.ACTIVE;
+import static com.facebook.presto.spi.NodeState.SHUTTING_DOWN;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -52,31 +50,29 @@ public class NodeAssignmentResource
   public List<NodeAssignmentInfo> getNodeAssignments()
   {
     ImmutableList.Builder<NodeAssignmentInfo> nodeAssignments = ImmutableList.builder();
-    Set<Node> nodes = nodeManager.getNodes(ACTIVE);
+    Set<Node> activeNodes = nodeManager.getNodes(ACTIVE);
+    Set<Node> shutdownNodes = nodeManager.getNodes(SHUTTING_DOWN);
 
-    for (Node node : nodes) {
+    for (Node node : activeNodes) {
       HostAddress nodeHostAddress = node.getHostAndPort();
       nodeAssignments.add(new NodeAssignmentInfo(
         nodeHostAddress.getHostText(),
         nodeHostAddress.getPort(),
         nodeTaskMap.getPartitionedSplitsOnNode(node),
-        nodeTaskMap.getNumberOfTasksOnNode(node)
+        nodeTaskMap.getNumberOfTasksOnNode(node),
+        "ACTIVE"
+      ));
+    }
+    for (Node node : shutdownNodes) {
+      HostAddress nodeHostAddress = node.getHostAndPort();
+      nodeAssignments.add(new NodeAssignmentInfo(
+        nodeHostAddress.getHostText(),
+        nodeHostAddress.getPort(),
+        nodeTaskMap.getPartitionedSplitsOnNode(node),
+        nodeTaskMap.getNumberOfTasksOnNode(node),
+        "SHUTDOWN"
       ));
     }
     return nodeAssignments.build();
-  }
-
-  @POST
-  @Path("blacklist")
-  @Consumes(MediaType.APPLICATION_JSON)
-  public void setNodeCandidatesBlacklist(NodeAssignmentBlacklistRequest request)
-  {
-    List<BlacklistNodeInfo> blacklistedNodes = request.getBlacklistedNodes();
-    ImmutableList.Builder<HostAddress> blacklistedHostAddresses = ImmutableList.builder();
-    for (BlacklistNodeInfo nodeInfo : blacklistedNodes) {
-      blacklistedHostAddresses.add(HostAddress.fromParts(nodeInfo.getNodeHost(), nodeInfo.getNodePort()));
-    }
-
-    nodeManager.setNodeCandidatesBlacklist(blacklistedHostAddresses.build());
   }
 }
