@@ -66,6 +66,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
@@ -721,12 +722,44 @@ public final class HiveUtil
         return columns.build();
     }
 
+    public static List<Column> getFieldsFromDeserializer(Table table)
+    {
+        ArrayList<Column> strFields = new ArrayList<Column>();
+
+        List<? extends StructField> fields = getTableStructFields(table);
+        int size = fields.size();
+
+        for (int i = 0; i < fields.size(); i++) {
+            StructField structField = fields.get(i);
+            String fieldName = structField.getFieldName();
+            HiveType fieldType = HiveType.valueOf(structField.getFieldObjectInspector().getTypeName());
+
+            strFields.add(new Column(fieldName, fieldType, Optional.ofNullable("blah")));
+        }
+        return strFields;
+    }
+
+    public static List<Column> getTableFields(Table table)
+    {
+        if (hasSerializationClass(table)) {
+            return getFieldsFromDeserializer(table);
+        }
+        else {
+            return table.getDataColumns();
+        }
+    }
+
+    public static boolean hasSerializationClass(Table table)
+    {
+        return table.getStorage().getSerdeParameters().containsKey("serialization.class");
+    }
+
     public static List<HiveColumnHandle> getRegularColumnHandles(String connectorId, Table table)
     {
         ImmutableList.Builder<HiveColumnHandle> columns = ImmutableList.builder();
 
         int hiveColumnIndex = 0;
-        for (Column field : table.getDataColumns()) {
+        for (Column field : getTableFields(table)) {
             // ignore unsupported types rather than failing
             HiveType hiveType = field.getType();
             if (hiveType.isSupportedType()) {
@@ -769,7 +802,10 @@ public final class HiveUtil
     @Nullable
     public static String annotateColumnComment(Optional<String> comment, boolean partitionKey)
     {
-        String normalizedComment = comment.orElse("").trim();
+        String normalizedComment = "";
+        if (comment != null) {
+            normalizedComment = comment.orElse("").trim();
+        }
         if (partitionKey) {
             if (normalizedComment.isEmpty()) {
                 normalizedComment = "Partition Key";
