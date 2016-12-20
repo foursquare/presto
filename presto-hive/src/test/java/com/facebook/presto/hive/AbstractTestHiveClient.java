@@ -1954,7 +1954,7 @@ public abstract class AbstractTestHiveClient
                             column.getName(),
                             column.getType(),
                             column.getComment(),
-                            columnExtraInfo(partitionedBy.contains(column.getName())),
+                            columnExtraInfo(Optional.of(column.getComment()), partitionedBy.contains(column.getName())),
                             false))
                     .collect(toList());
             assertEquals(filterNonHiddenColumnMetadata(tableMetadata.getColumns()), expectedColumns);
@@ -2940,7 +2940,7 @@ public abstract class AbstractTestHiveClient
         assertTrue(map.containsKey(name));
         ColumnMetadata column = map.get(name);
         assertEquals(column.getType(), type, name);
-        assertEquals(column.getExtraInfo(), columnExtraInfo(partitionKey));
+        assertEquals(column.getExtraInfo(), columnExtraInfo(Optional.of(column.getComment()), partitionKey));
     }
 
     protected static ImmutableMap<String, Integer> indexColumns(List<ColumnHandle> columnHandles)
