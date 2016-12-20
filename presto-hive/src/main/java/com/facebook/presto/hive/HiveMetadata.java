@@ -1430,7 +1430,7 @@ public class HiveMetadata
                 handle.getName(),
                 typeManager.getType(handle.getTypeSignature()),
                 columnComment.get(handle.getName()).orElse(null),
-                columnExtraInfo(handle.isPartitionKey()),
+                columnExtraInfo(columnComment.get(handle.getName()), handle.isPartitionKey()),
                 handle.isHidden());
     }
 
