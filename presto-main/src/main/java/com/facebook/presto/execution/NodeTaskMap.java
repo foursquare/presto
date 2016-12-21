@@ -52,6 +52,11 @@ public class NodeTaskMap
         return createOrGetNodeTasks(node).getPartitionedSplitCount();
     }
 
+    public int getNumberOfTasksOnNode(Node node)
+    {
+        return createOrGetNodeTasks(node).getNumberOfTasks();
+    }
+
     public PartitionedSplitCountTracker createPartitionedSplitCountTracker(Node node, TaskId taskId)
     {
         return createOrGetNodeTasks(node).createPartitionedSplitCountTracker(taskId);
@@ -106,6 +111,11 @@ public class NodeTaskMap
                     remoteTasks.remove(task);
                 }
             }
+        }
+
+        public int getNumberOfTasks()
+        {
+            return remoteTasks.size();
         }
 
         public PartitionedSplitCountTracker createPartitionedSplitCountTracker(TaskId taskId)
