@@ -56,6 +56,9 @@ public class GracefulShutdownHandler
     @GuardedBy("this")
     private boolean shutdownRequested;
 
+    @GuardedBy("this")
+    private boolean nodeDisabled;
+
     @Inject
     public GracefulShutdownHandler(
             TaskManager sqlTaskManager,
@@ -68,6 +71,22 @@ public class GracefulShutdownHandler
         this.lifeCycleManager = requireNonNull(lifeCycleManager, "lifeCycleManager is null");
         this.isCoordinator = requireNonNull(serverConfig, "serverConfig is null").isCoordinator();
         this.gracePeriod = serverConfig.getGracePeriod();
+        if (this.isCoordinator) {
+            setDisabled(false);
+        }
+        else {
+            setDisabled(true);
+        }
+    }
+
+    public synchronized void disableNode()
+    {
+        setDisabled(true);
+    }
+
+    public synchronized void enableNode()
+    {
+        setDisabled(false);
     }
 
     public synchronized void requestShutdown()
@@ -154,5 +173,15 @@ public class GracefulShutdownHandler
     public synchronized boolean isShutdownRequested()
     {
         return shutdownRequested;
+    }
+
+    private synchronized void setDisabled(boolean nodeDisabled)
+    {
+        this.nodeDisabled = nodeDisabled;
+    }
+
+    public synchronized boolean isNodeDisabled()
+    {
+        return nodeDisabled;
     }
 }

@@ -21,6 +21,7 @@ import io.airlift.node.NodeInfo;
 import javax.inject.Inject;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.GET;
+import javax.ws.rs.POST;
 import javax.ws.rs.PUT;
 import javax.ws.rs.Path;
 import javax.ws.rs.Produces;
@@ -91,12 +92,30 @@ public class ServerInfoResource
         }
     }
 
+    @POST
+    @Path("disable")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response disableNode()
+    {
+        shutdownHandler.disableNode();
+        return Response.noContent().build();
+    }
+
+    @POST
+    @Path("enable")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response enableNode()
+    {
+        shutdownHandler.enableNode();
+        return Response.noContent().build();
+    }
+
     @GET
     @Path("state")
     @Produces(APPLICATION_JSON)
     public NodeState getServerState()
     {
-        if (shutdownHandler.isShutdownRequested()) {
+        if (shutdownHandler.isShutdownRequested() || shutdownHandler.isNodeDisabled()) {
             return SHUTTING_DOWN;
         }
         else {
