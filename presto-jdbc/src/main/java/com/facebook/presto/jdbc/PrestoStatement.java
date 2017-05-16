@@ -196,7 +196,7 @@ public class PrestoStatement
         // ignore: positioned modifications not supported
     }
 
-    public QueryResults startUpdateExecute(String sql)
+    public QueryResults startExecution(String sql)
       throws SQLException
     {
         clearCurrentResults();
@@ -204,20 +204,13 @@ public class PrestoStatement
 
         boolean exceptionRaised = false;
         StatementClient client = null;
-        ResultSet resultSet = null;
         try {
             client = connection().startQuery(sql);
             if (client.isFailed()) {
                 throw resultsException(client.finalResults());
             }
 
-            resultSet = new PrestoResultSet(client, maxRows.get(), progressConsumer);
             checkSetOrResetSession(client);
-
-            // check if this is a query
-            if (client.current().getUpdateType() == null) {
-                throw new SQLException("This is not an update query!");
-            }
 
             return client.current();
         }
@@ -227,9 +220,6 @@ public class PrestoStatement
         }
         finally {
             if (exceptionRaised) {
-                if (resultSet != null) {
-                    resultSet.close();
-                }
                 if (client != null) {
                     client.close();
                 }
@@ -237,7 +227,7 @@ public class PrestoStatement
         }
     }
 
-    public QueryResults advanceUpdateExecution(QueryResults queryResults)
+    public QueryResults advanceExecution(QueryResults queryResults)
       throws SQLException
     {
         clearCurrentResults();
@@ -265,7 +255,7 @@ public class PrestoStatement
     }
 
     // this needs to get full QueryResults and not an instance that was serialized
-    public boolean isUpdateExecutionComplete(QueryResults queryResults)
+    public boolean isExecutionComplete(QueryResults queryResults)
     {
         URI nextUri = queryResults.getNextUri();
         return (nextUri == null);
