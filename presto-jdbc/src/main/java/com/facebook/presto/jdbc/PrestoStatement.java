@@ -25,6 +25,7 @@ import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
 import java.sql.SQLWarning;
 import java.sql.Statement;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -198,7 +199,6 @@ public class PrestoStatement
         // ignore: positioned modifications not supported
     }
 
-<<<<<<< HEAD
     private Map<String, String> getStatementSessionProperties()
     {
         ImmutableMap.Builder<String, String> sessionProperties = ImmutableMap.builder();
@@ -206,7 +206,8 @@ public class PrestoStatement
             sessionProperties.put("query_max_run_time", queryTimeoutSeconds.get() + "s");
         }
         return sessionProperties.build();
-=======
+    }
+
     public QueryResults startUpdateExecute(String sql)
       throws SQLException
     {
@@ -217,7 +218,7 @@ public class PrestoStatement
         StatementClient client = null;
         ResultSet resultSet = null;
         try {
-            client = connection().startQuery(sql);
+            client = connection().startQuery(sql, new HashMap<String, String>());
             if (client.isFailed()) {
                 throw resultsException(client.finalResults());
             }
@@ -280,7 +281,6 @@ public class PrestoStatement
     {
         URI nextUri = queryResults.getNextUri();
         return (nextUri == null);
->>>>>>> 57be488... adding support for running update queries asynchroniously (non blocking)
     }
 
     @Override

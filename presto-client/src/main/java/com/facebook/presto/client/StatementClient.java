@@ -137,7 +137,7 @@ public class StatementClient
         this.httpClient = httpClient;
         this.responseHandler = createFullJsonResponseHandler(queryResultsCodec);
         this.debug = session.isDebug();
-        this.timeZoneId = session.getTimeZoneId();
+        this.timeZone = session.getTimeZone();
         this.query = query;
         this.requestTimeoutNanos = session.getClientRequestTimeout().roundTo(NANOSECONDS);
         this.user = session.getUser();

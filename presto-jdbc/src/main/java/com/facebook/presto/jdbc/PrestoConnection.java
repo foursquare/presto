@@ -614,16 +614,19 @@ public class PrestoConnection
     ClientSession getClientSession()
     {
         String source = firstNonNull(clientInfo.get("ApplicationName"), "presto-jdbc");
+        Map<String, String> preparedStatements = new HashMap<String, String>();
 
         ClientSession session = new ClientSession(
           httpUri,
           user,
+          source,
           source,
           catalog.get(),
           schema.get(),
           timeZoneId.get(),
           locale.get(),
           ImmutableMap.copyOf(sessionProperties),
+          preparedStatements,
           transactionId.get(),
           false,
           new Duration(2, MINUTES));
