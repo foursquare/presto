@@ -26,6 +26,7 @@ import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
 import java.sql.SQLWarning;
 import java.sql.Statement;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -222,7 +223,7 @@ public class PrestoStatement
         StatementClient client = null;
         ResultSet resultSet = null;
         try {
-            client = connection().startQuery(sql);
+            client = connection().startQuery(sql, new HashMap<String, String>());
             if (client.isFailed()) {
                 throw resultsException(client.finalResults());
             }
