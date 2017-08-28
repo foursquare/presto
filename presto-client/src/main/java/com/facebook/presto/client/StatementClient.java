@@ -123,7 +123,7 @@ public class StatementClient
         processResponse(response.getHeaders(), response.getValue());
     }
 
-    public StatementClient(
+    /* public StatementClient(
       HttpClient httpClient,
       JsonCodec<QueryResults> queryResultsCodec,
       ClientSession session, String query,
@@ -148,7 +148,7 @@ public class StatementClient
         // the queryResults we pass is a product of a partial serialization of the previous query results.
         // we serizlize the fields that are needed to continue monitoring the transaction.
         currentResults.set(queryResults);
-    }
+    } */
 
     private Request buildQueryRequest(ClientSession session, String query)
     {
