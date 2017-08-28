@@ -123,20 +123,17 @@ public class StatementClient
         processResponse(response.getHeaders(), response.getValue());
     }
 
-    /* public StatementClient(
-      HttpClient httpClient,
-      JsonCodec<QueryResults> queryResultsCodec,
-      ClientSession session, String query,
-      QueryResults queryResults
+    public StatementClient(
+            OkHttpClient httpClient,
+            ClientSession session, String query,
+            QueryResults queryResults
     )
     {
         requireNonNull(httpClient, "httpClient is null");
-        requireNonNull(queryResultsCodec, "queryResultsCodec is null");
         requireNonNull(session, "session is null");
         requireNonNull(query, "query is null");
 
         this.httpClient = httpClient;
-        this.responseHandler = createFullJsonResponseHandler(queryResultsCodec);
         this.debug = session.isDebug();
         this.timeZone = session.getTimeZone();
         this.query = query;
@@ -148,7 +145,7 @@ public class StatementClient
         // the queryResults we pass is a product of a partial serialization of the previous query results.
         // we serizlize the fields that are needed to continue monitoring the transaction.
         currentResults.set(queryResults);
-    } */
+    }
 
     private Request buildQueryRequest(ClientSession session, String query)
     {
