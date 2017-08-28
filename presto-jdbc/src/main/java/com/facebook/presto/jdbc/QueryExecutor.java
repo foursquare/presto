@@ -16,6 +16,7 @@ package com.facebook.presto.jdbc;
 import com.facebook.presto.client.ClientException;
 import com.facebook.presto.client.ClientSession;
 import com.facebook.presto.client.JsonResponse;
+import com.facebook.presto.client.QueryResults;
 import com.facebook.presto.client.ServerInfo;
 import com.facebook.presto.client.StatementClient;
 import io.airlift.json.JsonCodec;
@@ -42,19 +43,13 @@ class QueryExecutor
 
     public StatementClient startQuery(ClientSession session, String query)
     {
-        return new StatementClient(httpClient, queryInfoCodec, session, query);
+        return new StatementClient(httpClient, session, query);
     }
 
     public StatementClient getClientFromQueryResults(ClientSession session, QueryResults queryResults)
     {
         // the query field is insignificant for what we want to do
-        return new StatementClient(httpClient, queryInfoCodec, session, "", queryResults);
-    }
-
-    @Override
-    public void close()
-    {
-        httpClient.close();
+        return new StatementClient(httpClient, session, "", queryResults);
     }
 
     public ServerInfo getServerInfo(URI server)

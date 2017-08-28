@@ -205,7 +205,8 @@ public class PrestoStatement
         // ignore: positioned modifications not supported
     }
 
-    private Map<String, String> getStatementSessionProperties() {
+    private Map<String, String> getStatementSessionProperties()
+    {
         ImmutableMap.Builder<String, String> sessionProperties = ImmutableMap.builder();
         if (queryTimeoutSeconds.get() > 0) {
             sessionProperties.put("query_max_run_time", queryTimeoutSeconds.get() + "s");
@@ -214,7 +215,7 @@ public class PrestoStatement
     }
 
     public QueryResults startUpdateExecute(String sql)
-      throws SQLException
+            throws SQLException
     {
         clearCurrentResults();
         checkOpen();
@@ -245,7 +246,7 @@ public class PrestoStatement
     }
 
     public QueryResults advanceExecution(QueryResults queryResults)
-      throws SQLException
+            throws SQLException
     {
         clearCurrentResults();
         checkOpen();

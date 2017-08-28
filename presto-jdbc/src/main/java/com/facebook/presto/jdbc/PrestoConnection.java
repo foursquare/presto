@@ -618,19 +618,19 @@ public class PrestoConnection
         Map<String, String> preparedStatements = new HashMap<String, String>();
 
         ClientSession session = new ClientSession(
-          httpUri,
-          user,
-          source,
-          source,
-          catalog.get(),
-          schema.get(),
-          timeZoneId.get(),
-          locale.get(),
-          ImmutableMap.copyOf(sessionProperties),
-          preparedStatements,
-          transactionId.get(),
-          false,
-          new Duration(2, MINUTES));
+                httpUri,
+                user,
+                source,
+                source,
+                catalog.get(),
+                schema.get(),
+                timeZoneId.get(),
+                locale.get(),
+                ImmutableMap.copyOf(sessionProperties),
+                preparedStatements,
+                transactionId.get(),
+                false,
+                new Duration(2, MINUTES));
 
         return session;
     }
