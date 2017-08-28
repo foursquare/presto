@@ -23,66 +23,66 @@ import static com.google.common.base.MoreObjects.toStringHelper;
 @Immutable
 public class NodeAssignmentInfo
 {
-  private final String nodeHost;
-  private final int nodePort;
-  private final int totalSplitCount;
-  private final int numTasks;
-  private final String state;
+    private final String nodeHost;
+    private final int nodePort;
+    private final int totalSplitCount;
+    private final int numTasks;
+    private final String state;
 
-  @JsonCreator
-  public NodeAssignmentInfo(
-    @JsonProperty("nodeHost") String nodeHost,
-    @JsonProperty("nodePort") int nodePort,
-    @JsonProperty("totalSplitCount") int totalSplitCount,
-    @JsonProperty("numTasks") int numTasks,
-    @JsonProperty("state") String state)
-  {
-    this.nodeHost = nodeHost;
-    this.nodePort = nodePort;
-    this.totalSplitCount = totalSplitCount;
-    this.numTasks = numTasks;
-    this.state = state;
-  }
+    @JsonCreator
+    public NodeAssignmentInfo(
+            @JsonProperty("nodeHost") String nodeHost,
+            @JsonProperty("nodePort") int nodePort,
+            @JsonProperty("totalSplitCount") int totalSplitCount,
+            @JsonProperty("numTasks") int numTasks,
+            @JsonProperty("state") String state)
+    {
+        this.nodeHost = nodeHost;
+        this.nodePort = nodePort;
+        this.totalSplitCount = totalSplitCount;
+        this.numTasks = numTasks;
+        this.state = state;
+    }
 
-  @JsonProperty
-  public int getTotalSplitCount()
-  {
-    return totalSplitCount;
-  }
+    @JsonProperty
+    public int getTotalSplitCount()
+    {
+        return totalSplitCount;
+    }
 
-  @JsonProperty
-  public int getNumTasks()
-  {
-    return numTasks;
-  }
+    @JsonProperty
+    public int getNumTasks()
+    {
+        return numTasks;
+    }
 
-  @JsonProperty
-  public String getNodeHost()
-  {
-    return nodeHost;
-  }
+    @JsonProperty
+    public String getNodeHost()
+    {
+        return nodeHost;
+    }
 
-  @JsonProperty
-  public int getNodePort()
-  {
-    return nodePort;
-  }
+    @JsonProperty
+    public int getNodePort()
+    {
+        return nodePort;
+    }
 
-  @JsonProperty
-  public String getState()
-  {
-    return state;
-  }
+    @JsonProperty
+    public String getState()
+    {
+        return state;
+    }
 
-  @Override
-  public String toString()
-  {
-    return toStringHelper(this)
-      .add("nodeHost", nodeHost)
-      .add("nodePort", nodePort)
-      .add("totalSplitCount", totalSplitCount)
-      .add("numTasks", numTasks)
-      .add("state", state)
-      .toString();
-  }
+    @Override
+    public String toString()
+    {
+        return toStringHelper(this)
+                .add("nodeHost", nodeHost)
+                .add("nodePort", nodePort)
+                .add("totalSplitCount", totalSplitCount)
+                .add("numTasks", numTasks)
+                .add("state", state)
+                .toString();
+    }
 }

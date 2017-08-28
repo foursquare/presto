@@ -68,7 +68,8 @@ import static java.util.stream.Collectors.toList;
 
 // TODO(ophir): make the stats/error serializable
 @Immutable
-public class QueryResults implements Serializable
+public class QueryResults
+                implements Serializable
 {
     private final String id;
     private final URI infoUri;

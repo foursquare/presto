@@ -543,18 +543,18 @@ public class AddExchanges
 
         private boolean isSourceOrdered(TableWriterNode node)
         {
-          if (node.getSource() instanceof ProjectNode) {
-            PlanNode source = ((ProjectNode) node.getSource()).getSource();
-            if ((source instanceof SortNode) || (source instanceof TopNNode)) {
-              return true;
+            if (node.getSource() instanceof ProjectNode) {
+                PlanNode source = ((ProjectNode) node.getSource()).getSource();
+                if ((source instanceof SortNode) || (source instanceof TopNNode)) {
+                    return true;
+                }
+                else {
+                    return false;
+                }
             }
             else {
-              return false;
+                return false;
             }
-          }
-          else {
-            return false;
-          }
         }
 
         @Override

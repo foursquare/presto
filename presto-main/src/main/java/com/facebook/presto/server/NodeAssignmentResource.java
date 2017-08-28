@@ -36,43 +36,43 @@ import static java.util.Objects.requireNonNull;
 @Path("/v1/nodeassignment")
 public class NodeAssignmentResource
 {
-  private final NodeTaskMap nodeTaskMap;
-  private final InternalNodeManager nodeManager;
+    private final NodeTaskMap nodeTaskMap;
+    private final InternalNodeManager nodeManager;
 
-  @Inject
-  public NodeAssignmentResource(NodeTaskMap nodeTaskMap, InternalNodeManager nodeManager)
-  {
-    this.nodeTaskMap = requireNonNull(nodeTaskMap, "nodeTaskMap is null");
-    this.nodeManager = requireNonNull(nodeManager, "nodeManager is null");
-  }
-
-  @GET
-  public List<NodeAssignmentInfo> getNodeAssignments()
-  {
-    ImmutableList.Builder<NodeAssignmentInfo> nodeAssignments = ImmutableList.builder();
-    Set<Node> activeNodes = nodeManager.getNodes(ACTIVE);
-    Set<Node> shutdownNodes = nodeManager.getNodes(SHUTTING_DOWN);
-
-    for (Node node : activeNodes) {
-      HostAddress nodeHostAddress = node.getHostAndPort();
-      nodeAssignments.add(new NodeAssignmentInfo(
-        nodeHostAddress.getHostText(),
-        nodeHostAddress.getPort(),
-        nodeTaskMap.getPartitionedSplitsOnNode(node),
-        nodeTaskMap.getNumberOfTasksOnNode(node),
-        "ACTIVE"
-      ));
+    @Inject
+    public NodeAssignmentResource(NodeTaskMap nodeTaskMap, InternalNodeManager nodeManager)
+    {
+        this.nodeTaskMap = requireNonNull(nodeTaskMap, "nodeTaskMap is null");
+        this.nodeManager = requireNonNull(nodeManager, "nodeManager is null");
     }
-    for (Node node : shutdownNodes) {
-      HostAddress nodeHostAddress = node.getHostAndPort();
-      nodeAssignments.add(new NodeAssignmentInfo(
-        nodeHostAddress.getHostText(),
-        nodeHostAddress.getPort(),
-        nodeTaskMap.getPartitionedSplitsOnNode(node),
-        nodeTaskMap.getNumberOfTasksOnNode(node),
-        "SHUTDOWN"
-      ));
+
+    @GET
+    public List<NodeAssignmentInfo> getNodeAssignments()
+    {
+        ImmutableList.Builder<NodeAssignmentInfo> nodeAssignments = ImmutableList.builder();
+        Set<Node> activeNodes = nodeManager.getNodes(ACTIVE);
+        Set<Node> shutdownNodes = nodeManager.getNodes(SHUTTING_DOWN);
+
+        for (Node node : activeNodes) {
+            HostAddress nodeHostAddress = node.getHostAndPort();
+            nodeAssignments.add(new NodeAssignmentInfo(
+                    nodeHostAddress.getHostText(),
+                    nodeHostAddress.getPort(),
+                    nodeTaskMap.getPartitionedSplitsOnNode(node),
+                    nodeTaskMap.getNumberOfTasksOnNode(node),
+                    "ACTIVE"
+            ));
+        }
+        for (Node node : shutdownNodes) {
+            HostAddress nodeHostAddress = node.getHostAndPort();
+            nodeAssignments.add(new NodeAssignmentInfo(
+                    nodeHostAddress.getHostText(),
+                    nodeHostAddress.getPort(),
+                    nodeTaskMap.getPartitionedSplitsOnNode(node),
+                    nodeTaskMap.getNumberOfTasksOnNode(node),
+                    "SHUTDOWN"
+            ));
+        }
+        return nodeAssignments.build();
     }
-    return nodeAssignments.build();
-  }
 }
