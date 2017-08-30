@@ -1483,7 +1483,7 @@ public class HiveMetadata
         return handle -> new ColumnMetadata(
                 handle.getName(),
                 typeManager.getType(handle.getTypeSignature()),
-                columnComment.get(handle.getName()).orElse(null),
+                null,
                 columnExtraInfo(columnComment.get(handle.getName()), handle.isPartitionKey()),
                 handle.isHidden());
     }
